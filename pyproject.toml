@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "paper-search-agent"
+version = "0.1.0"
+description = "Conference paper search agent with hierarchical retrieval and evidence-aware reranking."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "accelerate>=1.13.0",
+  "beautifulsoup4>=4.12.3",
+  "fastapi>=0.115.0",
+  "httpx>=0.28.1",
+  "mineru[pipeline]>=2.7.6,<2.8",
+  "numpy>=2.1.0",
+  "openai>=1.66.0",
+  "pydantic>=2.10.6",
+  "pymupdf>=1.25.3",
+  "python-dotenv>=1.0.1",
+  "rank-bm25>=0.2.2",
+  "sentence-transformers>=5.1.0",
+  "typer>=0.15.1",
+  "uvicorn>=0.34.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.4",
+]
+
+[project.scripts]
+paper-search-agent = "paper_search_agent.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/paper_search_agent"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

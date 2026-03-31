@@ -1,0 +1,69 @@
+[data]
+data_dir = "data"
+
+[deep_chat]
+history_turn_limit = 8
+global_evidence_k = 2
+local_evidence_k = 5
+retrieval_candidate_k = 16
+max_evidence_text_chars = 1800
+
+[pdf_parser]
+backend = "mineru_layout"
+
+[mineru]
+command = ".venv/bin/mineru"
+backend = "pipeline"
+method = "auto"
+lang = "en"
+source = "huggingface"
+device = "cuda:0"
+formula = false
+table = true
+output_dir = "data/parsed/mineru"
+require_middle_json = true
+require_markdown = true
+timeout_seconds = 3600.0
+
+[indexing]
+paper_dense_model = "allenai/specter2_base"
+chunk_dense_model = "BAAI/bge-m3"
+chunk_target_tokens = 420
+chunk_overlap_tokens = 63
+dense_device = "cuda:0"
+dense_batch_size = 2
+
+[retrieval]
+candidate_pool_size = 50
+candidate_source_limit = 120
+default_top_k = 10
+paper_sparse_rrf_weight = 0.28
+paper_dense_rrf_weight = 0.22
+chunk_aggregated_rrf_weight = 0.35
+literal_entity_rrf_weight = 0.10
+exact_phrase_rrf_weight = 0.05
+aspect_coverage_bonus = 0.08
+source_diversity_bonus = 0.05
+literal_entity_bonus = 0.08
+exact_phrase_bonus = 0.04
+evidence_sparse_weight = 0.35
+evidence_dense_weight = 0.40
+evidence_reranker_weight = 0.25
+evidence_reranker_candidate_chunks = 8
+evidence_chunk_text_limit = 1200
+
+[reranker]
+model = "BAAI/bge-reranker-v2-m3"
+device = "cuda:0"
+batch_size = 2
+
+[openai]
+enabled = true
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.4-mini"
+request_timeout = 60.0
+
+[grobid]
+enabled = true
+base_url = "http://127.0.0.1:8070"
+timeout_seconds = 120.0

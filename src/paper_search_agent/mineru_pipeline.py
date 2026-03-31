@@ -1,0 +1,400 @@
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import time
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import pypdfium2 as pdfium
+from mineru.cli.common import do_parse, read_fn
+from mineru.utils.enum_class import MakeMode
+
+from .config import Settings
+from .models import PaperRecord, ParseFailureRecord
+from .utils import now_iso
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class BatchItem:
+    paper: PaperRecord
+    pdf_path: Path
+    pages: int
+
+
+@dataclass(slots=True)
+class MinerUPipelineConfig:
+    max_pdfs_per_batch: int = 8
+    max_pages_per_batch: int = 120
+    min_batch_inference_size: int = 384
+    render_threads: int = 1
+    render_timeout: int = 600
+
+
+def artifact_complete(output_dir: Path, paper_id: str) -> bool:
+    root = output_dir / paper_id
+    has_content_list = any(root.rglob(f"{paper_id}_content_list.json"))
+    has_middle = any(root.rglob(f"{paper_id}_middle.json"))
+    has_markdown = any(root.rglob(f"{paper_id}.md"))
+    return has_content_list and has_middle and has_markdown
+
+
+def remove_artifacts(output_dir: Path, paper_ids: list[str]) -> None:
+    for paper_id in paper_ids:
+        root = output_dir / paper_id
+        if root.exists():
+            shutil.rmtree(root)
+
+
+def load_failure_entries(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    entries: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        entries.append(json.loads(line))
+    return entries
+
+
+def save_failure_entries(path: Path, entries: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for entry in entries:
+            handle.write(json.dumps(entry, ensure_ascii=False))
+            handle.write("\n")
+
+
+def remove_failure_entries(path: Path, paper_ids: set[str]) -> None:
+    entries = [entry for entry in load_failure_entries(path) if entry.get("paper_id") not in paper_ids]
+    if entries:
+        save_failure_entries(path, entries)
+        return
+    if path.exists():
+        path.unlink()
+
+
+def normalize_failure_entries(settings: Settings, papers: list[PaperRecord]) -> list[ParseFailureRecord]:
+    paper_lookup = {paper.paper_id: paper for paper in papers}
+    records: list[ParseFailureRecord] = []
+    for entry in load_failure_entries(settings.mineru_failure_manifest_path):
+        paper_id = str(entry.get("paper_id") or "")
+        paper = paper_lookup.get(paper_id)
+        if paper is None:
+            continue
+        if artifact_complete(settings.mineru_output_dir, paper_id):
+            continue
+        records.append(
+            ParseFailureRecord(
+                paper_id=paper.paper_id,
+                venue=paper.venue,
+                year=paper.year,
+                track=paper.track,
+                parser_backend="mineru_pipeline",
+                stage=str(entry.get("stage") or "mineru_pipeline"),
+                error_type=str(entry.get("error_type") or "mineru_pipeline_error"),
+                error_message=str(entry.get("error_message") or "unknown mineru pipeline error"),
+                local_pdf_path=paper.local_pdf_path,
+                analysis=str(entry.get("analysis") or ""),
+                suggestion=str(entry.get("suggestion") or ""),
+                details={
+                    "pdf_path": entry.get("pdf_path"),
+                    "pages": entry.get("pages"),
+                },
+                occurred_at=str(entry.get("occurred_at") or now_iso()),
+            )
+        )
+    return records
+
+
+def run_mineru_pipeline(
+    *,
+    settings: Settings,
+    papers: list[PaperRecord],
+    controller: Any | None = None,
+    config: MinerUPipelineConfig | None = None,
+) -> dict[str, int]:
+    config = config or MinerUPipelineConfig()
+    _configure_mineru_env(settings=settings, config=config)
+
+    failed_entries = load_failure_entries(settings.mineru_failure_manifest_path)
+    failed_ids = {
+        str(entry.get("paper_id") or "")
+        for entry in failed_entries
+        if entry.get("paper_id") and not artifact_complete(settings.mineru_output_dir, str(entry["paper_id"]))
+    }
+
+    pending_items = [
+        BatchItem(paper=paper, pdf_path=Path(str(paper.local_pdf_path)), pages=_pdf_page_count(Path(str(paper.local_pdf_path))))
+        for paper in papers
+        if paper.local_pdf_path
+        and not artifact_complete(settings.mineru_output_dir, paper.paper_id)
+        and paper.paper_id not in failed_ids
+    ]
+    if not pending_items:
+        logger.info("MinerU 阶段跳过: 当前 corpus 没有待解析 PDF。")
+        return {"processed": 0, "failed": 0, "skipped_failed": len(failed_ids)}
+
+    start_time = time.time()
+    batches = _build_batches(
+        pending_items,
+        max_pdfs=config.max_pdfs_per_batch,
+        max_pages=config.max_pages_per_batch,
+    )
+    processed = 0
+    failed = 0
+    total = len(pending_items)
+
+    logger.info(
+        "MinerU 开始: corpus=%s pending=%s batch_limit=%s/%s",
+        settings.corpus.key,
+        total,
+        config.max_pdfs_per_batch,
+        config.max_pages_per_batch,
+    )
+
+    for batch_index, batch in enumerate(batches, start=1):
+        _check_pause(controller)
+        batch_ids = [item.paper.paper_id for item in batch]
+        batch_pages = sum(item.pages for item in batch)
+        logger.info(
+            "MinerU 批次开始: batch=%s/%s papers=%s pages=%s ids=%s",
+            batch_index,
+            len(batches),
+            len(batch),
+            batch_pages,
+            " ".join(batch_ids),
+        )
+        try:
+            _run_batch(
+                batch,
+                output_dir=settings.mineru_output_dir,
+                lang=settings.mineru_lang or "en",
+                parse_method="txt" if settings.mineru_method == "auto" else settings.mineru_method,
+                backend=settings.mineru_backend,
+                formula=settings.mineru_formula,
+                table=settings.mineru_table,
+            )
+            processed += len(batch)
+            remove_failure_entries(settings.mineru_failure_manifest_path, set(batch_ids))
+            _emit_progress(
+                controller=controller,
+                phase="parse",
+                message=f"MinerU 已完成批次 {batch_index}/{len(batches)}",
+                completed=processed + failed,
+                total=total,
+                unit="papers",
+                started_at=start_time,
+            )
+        except Exception as exc:
+            logger.warning("MinerU 批次失败: batch=%s/%s error=%r", batch_index, len(batches), exc)
+            for item in batch:
+                _check_pause(controller)
+                try:
+                    _run_batch(
+                        [item],
+                        output_dir=settings.mineru_output_dir,
+                        lang=settings.mineru_lang or "en",
+                        parse_method="txt" if settings.mineru_method == "auto" else settings.mineru_method,
+                        backend=settings.mineru_backend,
+                        formula=settings.mineru_formula,
+                        table=settings.mineru_table,
+                    )
+                    processed += 1
+                    remove_failure_entries(settings.mineru_failure_manifest_path, {item.paper.paper_id})
+                except Exception as single_exc:
+                    failed += 1
+                    _append_failure_entry(
+                        settings.mineru_failure_manifest_path,
+                        paper=item.paper,
+                        pages=item.pages,
+                        stage="single_file_retry",
+                        error_type=single_exc.__class__.__name__,
+                        error_message=repr(single_exc),
+                        analysis="MinerU 在单篇论文重试阶段仍然失败，当前 parse 结果不能进入后续索引流程。",
+                        suggestion="检查该 PDF 与 MinerU 产物，必要时修复 PDF 后使用 rebuild 重新运行当前 corpus。",
+                    )
+                    logger.error("MinerU 单篇失败: paper=%s error=%r", item.paper.paper_id, single_exc)
+                _emit_progress(
+                    controller=controller,
+                    phase="parse",
+                    message=f"MinerU 正在处理失败重试 {item.paper.paper_id}",
+                    completed=processed + failed,
+                    total=total,
+                    unit="papers",
+                    started_at=start_time,
+                )
+
+    logger.info(
+        "MinerU 完成: corpus=%s success=%s failed=%s elapsed=%s",
+        settings.corpus.key,
+        processed,
+        failed,
+        _format_duration(time.time() - start_time),
+    )
+    return {"processed": processed, "failed": failed, "skipped_failed": len(failed_ids)}
+
+
+def _run_batch(
+    batch: list[BatchItem],
+    *,
+    output_dir: Path,
+    lang: str,
+    parse_method: str,
+    backend: str,
+    formula: bool,
+    table: bool,
+) -> None:
+    pdf_file_names = [item.paper.paper_id for item in batch]
+    pdf_bytes_list = [read_fn(item.pdf_path) for item in batch]
+    do_parse(
+        output_dir=str(output_dir),
+        pdf_file_names=pdf_file_names,
+        pdf_bytes_list=pdf_bytes_list,
+        p_lang_list=[lang] * len(batch),
+        backend=backend,
+        parse_method=parse_method,
+        formula_enable=formula,
+        table_enable=table,
+        f_draw_layout_bbox=False,
+        f_draw_span_bbox=False,
+        f_dump_md=True,
+        f_dump_middle_json=True,
+        f_dump_model_output=False,
+        f_dump_orig_pdf=False,
+        f_dump_content_list=True,
+        f_make_md_mode=MakeMode.MM_MD,
+    )
+
+
+def _configure_mineru_env(*, settings: Settings, config: MinerUPipelineConfig) -> None:
+    os.environ["MINERU_DEVICE_MODE"] = settings.mineru_device or "cuda:0"
+    os.environ["MINERU_MIN_BATCH_INFERENCE_SIZE"] = str(config.min_batch_inference_size)
+    os.environ["MINERU_PDF_RENDER_THREADS"] = str(config.render_threads)
+    os.environ["MINERU_PDF_RENDER_TIMEOUT"] = str(config.render_timeout)
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+
+def _build_batches(items: list[BatchItem], *, max_pdfs: int, max_pages: int) -> list[list[BatchItem]]:
+    batches: list[list[BatchItem]] = []
+    current: list[BatchItem] = []
+    current_pages = 0
+    for item in items:
+        would_overflow_pdf_count = len(current) >= max_pdfs
+        would_overflow_pages = current and current_pages + item.pages > max_pages
+        if would_overflow_pdf_count or would_overflow_pages:
+            batches.append(current)
+            current = []
+            current_pages = 0
+        current.append(item)
+        current_pages += item.pages
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _pdf_page_count(pdf_path: Path) -> int:
+    try:
+        document = pdfium.PdfDocument(str(pdf_path))
+        count = len(document)
+        document.close()
+        return max(1, int(count))
+    except Exception:
+        return 16
+
+
+def _append_failure_entry(
+    path: Path,
+    *,
+    paper: PaperRecord,
+    pages: int,
+    stage: str,
+    error_type: str,
+    error_message: str,
+    analysis: str,
+    suggestion: str,
+) -> None:
+    entries = load_failure_entries(path)
+    entries = [entry for entry in entries if entry.get("paper_id") != paper.paper_id]
+    entries.append(
+        {
+            "paper_id": paper.paper_id,
+            "pdf_path": paper.local_pdf_path,
+            "pages": pages,
+            "stage": stage,
+            "error_type": error_type,
+            "error_message": error_message,
+            "analysis": analysis,
+            "suggestion": suggestion,
+            "occurred_at": now_iso(),
+        }
+    )
+    save_failure_entries(path, entries)
+
+
+def _emit_progress(
+    *,
+    controller: Any | None,
+    phase: str,
+    message: str,
+    completed: int,
+    total: int,
+    unit: str,
+    started_at: float,
+) -> None:
+    elapsed = max(time.time() - started_at, 1e-6)
+    rate = completed / elapsed
+    remaining = max(total - completed, 0)
+    eta_seconds = remaining / rate if rate > 0 else None
+    logger.info(
+        "MinerU 进度: completed=%s total=%s percent=%.2f rate_%s_per_min=%.2f eta=%s",
+        completed,
+        total,
+        (completed / total) * 100 if total else 100.0,
+        unit,
+        rate * 60,
+        _format_duration(eta_seconds),
+    )
+    if controller is not None:
+        controller.update_progress(
+            phase=phase,
+            message=message,
+            completed=completed,
+            total=total,
+            unit=unit,
+            rate_per_min=rate * 60,
+            eta_seconds=eta_seconds,
+        )
+
+
+def _check_pause(controller: Any | None) -> None:
+    if controller is not None:
+        controller.check_pause_requested()
+
+
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "unknown"
+    total_seconds = max(0, int(seconds))
+    days, rem = divmod(total_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    if days:
+        return f"{days}d{hours:02d}h{minutes:02d}m{secs:02d}s"
+    if hours:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+def eta_timestamp(seconds: float | None) -> str | None:
+    if seconds is None:
+        return None
+    return (datetime.now() + timedelta(seconds=max(0, seconds))).isoformat(timespec="seconds")

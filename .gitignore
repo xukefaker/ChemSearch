@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Runtime data and logs
+data/
+logs/
+
+# Frontend
+apps/web/node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/.turbo/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
