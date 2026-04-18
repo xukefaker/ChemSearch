@@ -11,9 +11,9 @@
   "dependencies": {
     "@radix-ui/react-popover": "^1.1.15",
     "@tailwindcss/typography": "^0.5.19",
-    "framer-motion": "^12.38.0",
     "katex": "^0.16.44",
     "lucide-react": "^1.7.0",
+    "motion": "^12.23.24",
     "next": "16.2.1",
     "pdfjs-dist": "^5.4.296",
     "react": "19.2.4",

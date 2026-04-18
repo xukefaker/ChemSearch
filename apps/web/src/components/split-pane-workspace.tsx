@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject, type UIEvent } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import {
   BookMarked,
   BookOpen,
@@ -1379,20 +1378,13 @@ export function SplitPaneWorkspace({
             </div>
             {isRationaleOpen ? <ChevronUp className="h-4 w-4 text-slate-300" /> : <ChevronDown className="h-4 w-4 text-slate-300" />}
           </button>
-          <AnimatePresence initial={false}>
-            {isRationaleOpen ? (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="border-t border-slate-100 px-5 pb-5 pt-4">
-                  <p className="font-scholar text-[1rem] italic leading-8 text-slate-600">&ldquo;{paper.rationale}&rdquo;</p>
-                </div>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
+          <div className="psa-collapse overflow-hidden" data-state={isRationaleOpen ? 'open' : 'closed'}>
+            <div>
+              <div className="border-t border-slate-100 px-5 pb-5 pt-4">
+                <p className="font-scholar text-[1rem] italic leading-8 text-slate-600">&ldquo;{paper.rationale}&rdquo;</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {chatHistory.length === 0 ? (
@@ -1412,11 +1404,9 @@ export function SplitPaneWorkspace({
             (() => {
               const isLatestAssistant = message.role === 'assistant' && index === latestAssistantMessageIndex;
               return (
-                <motion.div
+                <div
                   key={`${message.role}-${index}`}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  className={`psa-fade-up-enter flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
                     className={`w-full rounded-[1.8rem] px-6 py-5 ${
@@ -1544,12 +1534,7 @@ export function SplitPaneWorkspace({
                     </div>
 
                     {message.citations && message.citations.length > 0 ? (
-                      <motion.div
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.22, ease: 'easeOut', delay: 0.06 }}
-                        className="mt-6 space-y-2 border-t border-slate-100 pt-4"
-                      >
+                      <div className="psa-fade-up-enter mt-6 space-y-2 border-t border-slate-100 pt-4">
                         <div className="flex items-center gap-2 text-[0.66rem] font-bold uppercase tracking-[0.22em] text-slate-400">
                           <BookOpen className="h-3.5 w-3.5" />
                           Evidence
@@ -1604,16 +1589,16 @@ export function SplitPaneWorkspace({
                             );
                           })}
                         </div>
-                      </motion.div>
+                      </div>
                     ) : null}
                   </div>
-                </motion.div>
+                </div>
               );
             })()
           ))}
 
           {isTyping ? (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
+            <div className="psa-fade-up-enter flex justify-start">
               <div className="w-full max-w-[92%] rounded-[1.8rem] rounded-bl-md border border-slate-200/70 bg-white p-6 shadow-scholar-sm">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -1643,7 +1628,7 @@ export function SplitPaneWorkspace({
                   <div className="skeleton-pulse h-2.5 w-[58%] rounded-full" />
                 </div>
               </div>
-            </motion.div>
+            </div>
           ) : null}
         </div>
 

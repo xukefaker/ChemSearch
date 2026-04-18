@@ -5,7 +5,6 @@ import { OverlayPanel } from '@/components/overlay-panel';
 import { bucketLabel } from '@/lib/presentation';
 import type { PaperResult, PaperChatCitation } from '@/lib/types';
 import { chatWithPaper } from '@/lib/client-api';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Sparkles, Quote, BookOpen, SearchCode, Info } from 'lucide-react';
 import Zoom from 'react-medium-image-zoom';
 
@@ -110,16 +109,8 @@ export function PaperDetailDrawer({ paper, open, onClose, onOpenTrace }: PaperDe
         </div>
 
         <div className="flex-1 overflow-visible relative">
-          <AnimatePresence mode="wait">
-            {activeTab === 'details' ? (
-              <motion.div 
-                key="details"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-                className="space-y-10 pb-4"
-              >
+          {activeTab === 'details' ? (
+              <div className="psa-fade-up-enter space-y-10 pb-4">
                 {/* Mineru 图片 Lightbox 放大部分 */}
                 {paper.main_image_url && (
                   <section className="rounded-3xl overflow-hidden border border-slate-200/60 shadow-lg group relative">
@@ -183,16 +174,9 @@ export function PaperDetailDrawer({ paper, open, onClose, onOpenTrace }: PaperDe
                      ))}
                    </div>
                 </section>
-              </motion.div>
+              </div>
             ) : (
-              <motion.div 
-                key="chat"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-                className="flex flex-col h-full max-h-[72vh]"
-              >
+              <div className="psa-fade-up-enter flex flex-col h-full max-h-[72vh]">
                 {/* 对话消息列表 */}
                 <div className="flex-1 overflow-y-auto space-y-6 pr-3 mb-4 min-h-[400px] custom-scrollbar pb-10">
                   {chatHistory.length === 0 && (
@@ -210,12 +194,7 @@ export function PaperDetailDrawer({ paper, open, onClose, onOpenTrace }: PaperDe
                   )}
 
                   {chatHistory.map((msg, i) => (
-                    <motion.div 
-                      key={i} 
-                      initial={{ opacity: 0, y: 10, scale: 0.98 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
+                    <div key={i} className={`psa-fade-up-enter flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                        <div className={`max-w-[92%] px-6 py-5 rounded-[1.8rem] shadow-sm ${
                          msg.role === 'user' 
                          ? 'bg-indigo-600 text-white font-medium shadow-indigo-200 rounded-br-sm' 
@@ -295,16 +274,12 @@ export function PaperDetailDrawer({ paper, open, onClose, onOpenTrace }: PaperDe
                             </div>
                           )}
                        </div>
-                    </motion.div>
+                    </div>
                   ))}
                   
                   {/* 骨架屏 (Skeleton Loading) */}
                   {isTyping && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex justify-start"
-                    >
+                    <div className="psa-fade-up-enter flex justify-start">
                        <div className="bg-white border border-slate-200/60 p-6 rounded-[1.8rem] rounded-bl-sm shadow-sm w-full max-w-[85%]">
                           <div className="flex items-center gap-3 mb-4">
                              <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
@@ -316,7 +291,7 @@ export function PaperDetailDrawer({ paper, open, onClose, onOpenTrace }: PaperDe
                             <div className="h-2.5 bg-slate-100 rounded-full w-5/6 animate-pulse animation-delay-300" />
                           </div>
                        </div>
-                    </motion.div>
+                    </div>
                   )}
                   <div ref={scrollRef} />
                 </div>
@@ -339,9 +314,9 @@ export function PaperDetailDrawer({ paper, open, onClose, onOpenTrace }: PaperDe
                      <Send className="w-4.5 h-4.5" />
                    </button>
                 </div>
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>
+          
         </div>
       </div>
     </OverlayPanel>

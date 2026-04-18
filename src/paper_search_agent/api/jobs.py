@@ -23,7 +23,9 @@ _SENTINEL = object()
 @dataclass(slots=True)
 class _JobRecord:
     job_id: str
+    project_id: str
     query: str
+    workspace_scope: list[str]
     top_k: int
     display_k: int
     status: str = "queued"
@@ -54,10 +56,20 @@ class SearchJobManager:
         self._queue.put(_SENTINEL)
         self._worker.join(timeout=5.0)
 
-    def submit(self, query: str, top_k: int, display_k: int) -> SearchJobStatusResponse:
+    def submit(
+        self,
+        *,
+        query: str,
+        project_id: str,
+        workspace_scope: list[str],
+        top_k: int,
+        display_k: int,
+    ) -> SearchJobStatusResponse:
         job = _JobRecord(
             job_id=uuid4().hex[:16],
+            project_id=project_id,
             query=query,
+            workspace_scope=list(workspace_scope),
             top_k=top_k,
             display_k=display_k,
         )
@@ -84,6 +96,9 @@ class SearchJobManager:
                 query=job.query,
                 trace_id=result.trace_id,
                 mode=result.mode,
+                workspace_scope=result.workspace_scope,
+                query_scope=result.query_scope.model_dump(),
+                effective_scope=result.effective_scope,
                 counts=SearchResultCounts(
                     satisfied=len(result.satisfied),
                     partial=len(result.partial),
@@ -138,6 +153,7 @@ class SearchJobManager:
             result = self.engine.search(
                 job.query,
                 top_k=job.top_k,
+                workspace_scope=job.workspace_scope,
                 progress_callback=lambda update: self._update_progress(job_id, update),
             )
         except Exception as exc:

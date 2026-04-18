@@ -1,4 +1,5 @@
 import type {
+  CorpusCatalogResponse,
   PaperChatRequest,
   PaperChatResponse,
   ProjectDetailResponse,
@@ -40,11 +41,15 @@ async function requestJson<T>(path: string, init: JsonInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function createSearchJob(payload: { query: string; top_k: number; display_k?: number }) {
+export function createSearchJob(payload: { project_id: string; query: string; top_k: number; display_k?: number }) {
   return requestJson<SearchJobStatus>('/api/search/jobs', {
     method: 'POST',
     body: payload,
   });
+}
+
+export function fetchCorpusCatalog() {
+  return requestJson<CorpusCatalogResponse>('/api/corpora/catalog');
 }
 
 export function fetchSearchJob(jobId: string) {
@@ -91,7 +96,7 @@ export function listProjects() {
 }
 
 export function createProject(payload: { title: string }) {
-  return requestJson<{ project_id: string; title: string; created_at: string; updated_at: string; search_thread_count: number; paper_session_count: number }>(
+  return requestJson<{ project_id: string; title: string; created_at: string; updated_at: string; selected_corpora: string[]; search_thread_count: number; paper_session_count: number }>(
     '/api/projects',
     {
       method: 'POST',
@@ -116,8 +121,8 @@ export function deleteProject(projectId: string) {
   });
 }
 
-export function renameProject(projectId: string, payload: { title: string }) {
-  return requestJson<{ project_id: string; title: string; created_at: string; updated_at: string; search_thread_count: number; paper_session_count: number }>(
+export function updateProject(projectId: string, payload: { title?: string; selected_corpora?: string[] }) {
+  return requestJson<{ project_id: string; title: string; created_at: string; updated_at: string; selected_corpora: string[]; search_thread_count: number; paper_session_count: number }>(
     `/api/projects/${encodeURIComponent(projectId)}`,
     {
       method: 'PATCH',
@@ -134,6 +139,13 @@ export function upsertProjectThread(
     trace_id?: string | null;
     result_counts: Record<string, number>;
     paper_ids: string[];
+    workspace_scope: string[];
+    query_scope: {
+      venues: string[];
+      years: number[];
+      tracks?: string[];
+    };
+    effective_scope: string[];
   },
 ) {
   return requestJson<ProjectSearchThread>(

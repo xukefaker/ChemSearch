@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ...config import Settings
+from ...corpus_catalog import load_search_current_catalog
+from ...project_store import ProjectStore
 from ..schemas import CreateSearchJobRequest, SearchJobResultResponse, SearchJobStatusResponse
 
 router = APIRouter()
@@ -13,8 +16,34 @@ def create_search_job(request: Request, payload: CreateSearchJobRequest) -> Sear
     query = payload.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
+    root_dir = service_manager.root_dir
+    settings = Settings.from_env(root_dir=root_dir)
+    store = ProjectStore(settings)
+    try:
+        project = store.require_project(payload.project_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Workspace not found") from exc
+
+    workspace_scope = project.selected_corpora or []
+    if not workspace_scope:
+        raise HTTPException(status_code=409, detail="The current workspace has no corpora selected.")
+
+    available_corpora = set(load_search_current_catalog(settings).corpus_keys)
+    unavailable = [corpus for corpus in workspace_scope if corpus not in available_corpora]
+    if unavailable:
+        raise HTTPException(
+            status_code=409,
+            detail="The current workspace contains unavailable corpora. Update the workspace scope before searching.",
+        )
+
     with service_manager.acquire_services() as services:
-        return services.jobs.submit(query=query, top_k=payload.top_k, display_k=payload.display_k)
+        return services.jobs.submit(
+            query=query,
+            project_id=payload.project_id,
+            workspace_scope=workspace_scope,
+            top_k=payload.top_k,
+            display_k=payload.display_k,
+        )
 
 
 @router.get("/search/jobs/{job_id}", response_model=SearchJobStatusResponse)

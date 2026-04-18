@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const DEFAULT_BACKEND_API_BASE_URL = "http://127.0.0.1:8000/api";
+const DEFAULT_BACKEND_API_BASE_URL = "http://127.0.0.1:4001/api";
 
 function getBackendApiBaseUrl(): string {
   return process.env.PAPER_SEARCH_AGENT_API_BASE_URL?.replace(/\/$/, "") ?? DEFAULT_BACKEND_API_BASE_URL;

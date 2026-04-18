@@ -32,6 +32,7 @@ def _build_project_summary(store: ProjectStore, project) -> ProjectSummaryRespon
         title=project.title,
         created_at=project.created_at,
         updated_at=project.updated_at,
+        selected_corpora=project.selected_corpora or [],
         search_thread_count=store.thread_count(project.project_id),
         paper_session_count=store.paper_session_count(project.project_id),
     )
@@ -72,7 +73,15 @@ def get_project(request: Request, project_id: str) -> ProjectDetailResponse:
 def update_project(request: Request, project_id: str, payload: UpdateProjectRequest) -> ProjectSummaryResponse:
     store = _project_store(request)
     try:
-        project = store.rename_project(project_id, payload.title)
+        updates: dict[str, object] = {}
+        if "title" in payload.model_fields_set:
+            updates["title"] = payload.title
+        if "selected_corpora" in payload.model_fields_set:
+            updates["selected_corpora"] = payload.selected_corpora or []
+        if not updates:
+            project = store.require_project(project_id)
+        else:
+            project = store.update_project(project_id, **updates)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=404 if isinstance(exc, FileNotFoundError) else 400, detail=str(exc)) from exc
     return _build_project_summary(store, project)
@@ -133,6 +142,9 @@ def upsert_project_thread(
         updated_at=now_iso(),
         result_counts=payload.result_counts,
         paper_ids=payload.paper_ids,
+        workspace_scope=payload.workspace_scope,
+        query_scope=payload.query_scope,
+        effective_scope=payload.effective_scope,
     )
     return store.save_thread(record)
 

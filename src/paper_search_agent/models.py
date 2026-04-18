@@ -303,6 +303,8 @@ class SearchTrace(BaseModel):
     created_at: str
     mode: str
     user_query: str
+    workspace_scope: list[str] = Field(default_factory=list)
+    effective_scope: list[str] = Field(default_factory=list)
     query_plan: QueryPlan
     paper_recall: list[RecallItem] = Field(default_factory=list)
     evidence_packs: dict[str, dict[str, list[EvidenceChunk]]] = Field(default_factory=dict)
@@ -332,6 +334,7 @@ class ProjectRecord(BaseModel):
     title: str
     created_at: str
     updated_at: str
+    selected_corpora: list[str] | None = None
 
 
 class ProjectSearchThreadRecord(BaseModel):
@@ -343,6 +346,9 @@ class ProjectSearchThreadRecord(BaseModel):
     updated_at: str
     result_counts: dict[str, int] = Field(default_factory=dict)
     paper_ids: list[str] = Field(default_factory=list)
+    workspace_scope: list[str] = Field(default_factory=list)
+    query_scope: ScopeConstraints = Field(default_factory=ScopeConstraints)
+    effective_scope: list[str] = Field(default_factory=list)
 
 
 class ProjectPaperSessionRecord(BaseModel):
@@ -407,6 +413,9 @@ class BuildIndexSummary(BaseModel):
 class SearchResponse(BaseModel):
     trace_id: str
     mode: str
+    workspace_scope: list[str] = Field(default_factory=list)
+    query_scope: ScopeConstraints = Field(default_factory=ScopeConstraints)
+    effective_scope: list[str] = Field(default_factory=list)
     satisfied: list[PaperResult] = Field(default_factory=list)
     partial: list[PaperResult] = Field(default_factory=list)
     rejected: list[PaperResult] = Field(default_factory=list)

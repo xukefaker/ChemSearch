@@ -45,6 +45,7 @@ from .utils import cosine_similarity_matrix, make_trace_id, now_iso, tokenize, t
 class _Runtime:
     papers: list[PaperRecord]
     paper_lookup: dict[str, PaperRecord]
+    paper_ids_by_corpus: dict[str, set[str]]
     paper_bm25: BM25Okapi
     paper_ids: list[str]
     paper_vectors: np.ndarray
@@ -131,6 +132,9 @@ class SearchEngine:
             _assert_index_alignment("chunk", chunk_meta, chunk_ids, chunk_vectors)
 
             paper_lookup = {paper.paper_id: paper for paper in papers}
+            paper_ids_by_corpus: dict[str, set[str]] = defaultdict(set)
+            for paper in papers:
+                paper_ids_by_corpus[_paper_corpus_key(paper)].add(paper.paper_id)
             objects_by_paper: dict[str, list[ObjectRecord]] = defaultdict(list)
             for obj in objects:
                 objects_by_paper[obj.paper_id].append(obj)
@@ -199,6 +203,7 @@ class SearchEngine:
             self.runtime = _Runtime(
                 papers=papers,
                 paper_lookup=paper_lookup,
+                paper_ids_by_corpus=dict(paper_ids_by_corpus),
                 paper_bm25=BM25Okapi(paper_tokens),
                 paper_ids=paper_ids,
                 paper_vectors=paper_vectors,
@@ -223,6 +228,7 @@ class SearchEngine:
         self,
         query: str,
         top_k: int | None = None,
+        workspace_scope: list[str] | None = None,
         progress_callback: Callable[[SearchProgressUpdate], None] | None = None,
     ) -> SearchResponse:
         if self.runtime is None:
@@ -254,6 +260,12 @@ class SearchEngine:
         planner_result = self.planner.plan(query)
         query_plan = planner_result.plan
         timings = {"planner": (perf_counter() - plan_start) * 1000}
+        resolved_workspace_scope = self._resolve_workspace_scope(runtime, workspace_scope)
+        if not resolved_workspace_scope:
+            raise RuntimeError("The current workspace has no available corpora selected.")
+        effective_scope = self._resolve_effective_scope(runtime, resolved_workspace_scope, query_plan.scope_constraints)
+        if not effective_scope:
+            raise RuntimeError("The query scope does not overlap with the current workspace corpus selection.")
         self._emit_progress(
             progress_callback,
             "planning_query",
@@ -268,7 +280,11 @@ class SearchEngine:
             stage_progress=0.0,
         )
         candidate_start = perf_counter()
-        candidate_pool, coarse_scores, recall_items, filter_summary = self._candidate_generation(runtime, query_plan)
+        candidate_pool, coarse_scores, recall_items, filter_summary = self._candidate_generation(
+            runtime,
+            query_plan,
+            effective_scope,
+        )
         timings["candidate_generation"] = (perf_counter() - candidate_start) * 1000
         self._emit_progress(
             progress_callback,
@@ -367,6 +383,8 @@ class SearchEngine:
             created_at=now_iso(),
             mode="layout_llm_verifier",
             user_query=query,
+            workspace_scope=resolved_workspace_scope,
+            effective_scope=effective_scope,
             query_plan=query_plan,
             paper_recall=recall_items,
             evidence_packs=evidence_packs,
@@ -398,7 +416,14 @@ class SearchEngine:
             stage_progress=1.0,
         )
         self._emit_progress(progress_callback, "completed", "Search completed.", stage_progress=1.0)
-        return SearchResponse(trace_id=trace_id, mode="layout_llm_verifier", **grouped_results)
+        return SearchResponse(
+            trace_id=trace_id,
+            mode="layout_llm_verifier",
+            workspace_scope=resolved_workspace_scope,
+            query_scope=query_plan.scope_constraints,
+            effective_scope=effective_scope,
+            **grouped_results,
+        )
 
     @staticmethod
     def _emit_progress(
@@ -426,8 +451,9 @@ class SearchEngine:
         self,
         runtime: _Runtime,
         query_plan: QueryPlan,
+        effective_scope: list[str],
     ) -> tuple[list[tuple[str, float]], dict[str, float], list[RecallItem], dict[str, object]]:
-        allowed_paper_ids = self._allowed_paper_ids(runtime, query_plan.scope_constraints)
+        allowed_paper_ids = self._allowed_paper_ids(runtime, effective_scope)
         source_limit = self.settings.candidate_source_limit
 
         source_rankings: dict[str, list[str]] = {}
@@ -491,6 +517,7 @@ class SearchEngine:
 
         filter_summary: dict[str, object] = {
             "allowed_paper_ids": len(allowed_paper_ids),
+            "effective_scope": effective_scope,
             "candidate_pool_count": len(candidate_pool),
             "candidate_pool_ids": [paper_id for paper_id, _ in candidate_pool],
             "source_sizes": {source_name: len(ranking) for source_name, ranking in source_rankings.items()},
@@ -1136,19 +1163,32 @@ class SearchEngine:
             }
         return payload
 
-    def _allowed_paper_ids(self, runtime: _Runtime, constraints: ScopeConstraints) -> set[str]:
-        allowed = set(runtime.paper_ids)
-        if constraints.venues:
-            allowed &= {paper.paper_id for paper in runtime.papers if paper.venue.lower() in constraints.venues}
-        if constraints.years:
-            allowed &= {paper.paper_id for paper in runtime.papers if paper.year in constraints.years}
-        if constraints.tracks:
-            allowed &= {
-                paper.paper_id
-                for paper in runtime.papers
-                if paper.track and paper.track.lower() in constraints.tracks
-            }
+    def _allowed_paper_ids(self, runtime: _Runtime, effective_scope: list[str]) -> set[str]:
+        allowed: set[str] = set()
+        for corpus_key in effective_scope:
+            allowed.update(runtime.paper_ids_by_corpus.get(corpus_key, set()))
         return allowed
+
+    def _resolve_workspace_scope(self, runtime: _Runtime, workspace_scope: list[str] | None) -> list[str]:
+        available_corpora = set(runtime.paper_ids_by_corpus)
+        if workspace_scope is None:
+            return sorted(available_corpora)
+        return sorted({corpus for corpus in workspace_scope if corpus in available_corpora})
+
+    def _resolve_effective_scope(
+        self,
+        runtime: _Runtime,
+        workspace_scope: list[str],
+        query_scope: ScopeConstraints,
+    ) -> list[str]:
+        if not (query_scope.venues or query_scope.years or query_scope.tracks):
+            return workspace_scope
+        query_scope_corpora = {
+            corpus_key
+            for corpus_key in runtime.paper_ids_by_corpus
+            if _matches_corpus_constraints(corpus_key, query_scope)
+        }
+        return sorted(query_scope_corpora.intersection(workspace_scope))
 
     @staticmethod
     def _filter_ranked_ids(item_ids: list[str], allowed_paper_ids: set[str]) -> list[str]:
@@ -1197,6 +1237,22 @@ class SearchEngine:
             return []
         normalized = _normalize_scores(np.array([score for _, score in ranked], dtype=float))
         return [(item_id, float(score)) for (item_id, _), score in zip(ranked, normalized.tolist(), strict=False)]
+
+
+def _paper_corpus_key(paper: PaperRecord) -> str:
+    track = (paper.track or "unknown").strip().lower()
+    return f"{paper.venue.lower()}/{paper.year}/{track}"
+
+
+def _matches_corpus_constraints(corpus_key: str, constraints: ScopeConstraints) -> bool:
+    venue, year_text, track = corpus_key.split("/", 2)
+    if constraints.venues and venue not in constraints.venues:
+        return False
+    if constraints.years and int(year_text) not in constraints.years:
+        return False
+    if constraints.tracks and track not in constraints.tracks:
+        return False
+    return True
 
 
 def _aggregate_top_local_scores(scores: list[float]) -> float:

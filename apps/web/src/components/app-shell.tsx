@@ -14,7 +14,7 @@ import {
   type ResultBucketKey,
   type SearchRun,
 } from "@/lib/presentation";
-import { createSearchJob, fetchSearchJob, fetchSearchJobResult, fetchTrace } from "@/lib/client-api";
+import { createProject, createSearchJob, fetchSearchJob, fetchSearchJobResult, fetchTrace } from "@/lib/client-api";
 import type { HealthSummary, PaperResult } from "@/lib/types";
 
 type AppShellProps = {
@@ -34,6 +34,7 @@ export function AppShell({ initialHealth, demoQueries }: AppShellProps) {
   const [traceRunId, setTraceRunId] = useState<string | null>(null);
   const [systemOpen, setSystemOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
 
   const activeRun = useMemo(
     () =>
@@ -58,6 +59,15 @@ export function AppShell({ initialHealth, demoQueries }: AppShellProps) {
     startTransition(() => {
       setRuns((currentRuns) => currentRuns.map((run) => (run.id === runId ? updater(run) : run)));
     });
+  }
+
+  async function ensureWorkspaceId() {
+    if (workspaceId) {
+      return workspaceId;
+    }
+    const created = await createProject({ title: "Untitled workspace" });
+    setWorkspaceId(created.project_id);
+    return created.project_id;
   }
 
   useEffect(() => {
@@ -153,7 +163,9 @@ export function AppShell({ initialHealth, demoQueries }: AppShellProps) {
     });
 
     try {
+      const projectId = await ensureWorkspaceId();
       const created = await createSearchJob({
+        project_id: projectId,
         query: normalizedQuery,
         top_k: topK,
       });

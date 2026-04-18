@@ -1,6 +1,5 @@
 import { paperZoteroPageUrl } from '@/lib/client-api';
 import type { PaperResult } from '@/lib/types';
-import { motion } from 'framer-motion';
 import { ArrowRight, BookMarked, ImageIcon, Landmark, Users } from 'lucide-react';
 import type { CSSProperties } from 'react';
 
@@ -22,10 +21,9 @@ export function PaperResultCard({ paper, onOpenPaper, onQuickPeek }: PaperResult
       : 'border-slate-200/90 bg-slate-100/92 text-slate-600';
 
   return (
-    <motion.article
+    <article
       role='button'
       tabIndex={0}
-      layout
       onClick={() => onQuickPeek?.(paper)}
       onKeyDown={(event) => {
         if ((event.key === 'Enter' || event.key === ' ') && onQuickPeek) {
@@ -33,12 +31,7 @@ export function PaperResultCard({ paper, onOpenPaper, onQuickPeek }: PaperResult
           onQuickPeek(paper);
         }
       }}
-      whileHover={{
-        y: -6,
-        rotate: -0.25,
-        boxShadow: '0 34px 70px rgba(15, 23, 42, 0.11), 0 12px 28px rgba(15, 23, 42, 0.06)',
-      }}
-      className='group relative flex h-full min-h-[37rem] cursor-pointer flex-col overflow-hidden rounded-[2rem] border border-white/80 bg-white/88 shadow-scholar-lg backdrop-blur-xl transition-all duration-500 hover:border-indigo-200/60 focus:outline-none focus-visible:border-indigo-300 focus-visible:ring-4 focus-visible:ring-indigo-100'
+      className='psa-surface-hover group relative flex h-full min-h-[37rem] cursor-pointer flex-col overflow-hidden rounded-[2rem] border border-white/80 bg-white/88 shadow-scholar-lg backdrop-blur-xl hover:border-indigo-200/60 focus:outline-none focus-visible:border-indigo-300 focus-visible:ring-4 focus-visible:ring-indigo-100'
       aria-label={`Quick peek ${paper.title}`}
     >
       <div className='relative h-56 w-full overflow-hidden border-b border-slate-100/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.92))]'>
@@ -130,7 +123,7 @@ export function PaperResultCard({ paper, onOpenPaper, onQuickPeek }: PaperResult
           </div>
         </div>
       </div>
-    </motion.article>
+    </article>
   );
 }
 

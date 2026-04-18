@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, FolderOpen, Loader2, Plus, Search } from 'lucide-react';
 
+import { usePresence } from '@/lib/animation/use-presence';
+import { useSequencedReveal } from '@/lib/animation/use-sequenced-reveal';
+import { runViewTransition } from '@/lib/animation/view-transition';
 import { ActivityMark, useTransientActivityMode } from '@/components/activity-mark';
 import { GlobalSearchPalette } from '@/components/global-search-palette';
-import { PaperResultCard, PaperResultCardSkeleton } from '@/components/paper-result-card';
+import { PaperResultCard } from '@/components/paper-result-card';
 import { ProjectWorkspacePanel } from '@/components/project-workspace-panel';
 import { QuickPeekPanel } from '@/components/quick-peek-panel';
 import { SplitPaneWorkspace } from '@/components/split-pane-workspace';
@@ -15,17 +17,19 @@ import {
   createProject,
   createSearchJob,
   deleteProject,
+  fetchCorpusCatalog,
   fetchProject,
   fetchSearchJob,
   fetchSearchJobResult,
   fetchTrace,
   listProjects,
-  renameProject,
+  updateProject,
   upsertProjectPaperSession,
   upsertProjectThread,
 } from '@/lib/client-api';
 import { clearCurrentProjectId, loadCurrentProjectId, saveCurrentProjectId } from '@/lib/project-ui-state';
 import type {
+  CorpusCatalogEntry,
   PaperChatCitation,
   PaperResult,
   ProjectDetailResponse,
@@ -61,6 +65,17 @@ export type ChatMessage = {
 };
 
 type WorkspaceActionIntent = 'clear' | 'delete';
+
+type ActiveSearchRun = {
+  assistantId: string;
+  query: string;
+  status: SearchJobStatus['status'];
+  currentStage?: string;
+  stageMessage?: string;
+  progress?: SearchJobProgress | null;
+  startedAt: number;
+  stageStartedAt: number;
+};
 
 function buildDisplayResultsFromTrace(thread: ProjectSearchThread, trace: SearchTrace | null): PaperResult[] {
   if (!trace) {
@@ -247,6 +262,16 @@ function formatTimingMs(value: number | undefined): string {
   return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)} s`;
 }
 
+function formatElapsedCompact(valueMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(valueMs / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${seconds}s`;
+}
+
 function formatProgressDetail(stage: string | undefined, progress: SearchJobProgress | null | undefined): string | null {
   if (!progress) {
     return null;
@@ -268,31 +293,49 @@ function formatProgressDetail(stage: string | undefined, progress: SearchJobProg
   return null;
 }
 
-function SearchProgressPanel({ message }: { message: SearchMessage }) {
+const SearchProgressPanel = memo(function SearchProgressPanel({
+  message,
+  stageElapsedMs = 0,
+  totalElapsedMs = 0,
+  compact = false,
+}: {
+  message: SearchMessage;
+  stageElapsedMs?: number;
+  totalElapsedMs?: number;
+  compact?: boolean;
+}) {
   const progress = message.progress ?? null;
   const stageMeta = getStageMeta(message.currentStage);
-  const overallProgressPercent = clampPercentage(Math.round((progress?.overall_progress ?? 0) * 100));
+  const isCompleted = message.status === 'completed';
+  const overallProgressPercent = clampPercentage(Math.round(((isCompleted ? 1 : (progress?.overall_progress ?? 0)) * 100)));
   const detail = formatProgressDetail(message.currentStage, progress);
   const activeStageIndex = progress?.stage_index ?? 0;
+  const activeStageShort = isCompleted ? 'Ready' : stageMeta?.short ?? 'Run';
+  const longRunning = !isCompleted && stageElapsedMs >= 8000;
+  const steadyNote = isCompleted
+    ? `Search wrapped in ${formatElapsedCompact(totalElapsedMs)}. Preparing the review view.`
+    : longRunning
+      ? `Still working in ${stageMeta?.label ?? 'the current stage'} • ${formatElapsedCompact(stageElapsedMs)} in this stage`
+      : null;
 
   return (
-    <div className="search-progress-panel mt-2 w-full max-w-[620px] overflow-hidden rounded-[1.7rem] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,249,252,0.96))] p-5 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
+    <div className={`search-progress-panel mt-2 w-full overflow-hidden rounded-[1.7rem] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(249,250,252,0.97))] ${compact ? 'search-progress-panel--compact max-w-[760px] p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]' : 'max-w-[620px] p-5 shadow-[0_18px_42px_rgba(15,23,42,0.06)]'}`}>
       <div className="search-progress-panel__rail" />
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex items-center gap-3">
-          <ActivityMark mode="active" label={null} layout="inline" size="md" />
-          <div className="min-w-0">
+        <div className="min-w-0 flex items-start gap-3">
+          <ActivityMark mode={isCompleted ? 'done' : 'active'} label={null} layout="inline" size="md" minimal={compact} />
+          <div className="min-w-0 flex-1 pt-0.5 text-left">
             <div className="truncate text-[1rem] font-semibold tracking-tight text-slate-950">
-              {stageMeta?.label ?? 'Preparing the search pipeline'}
+              {isCompleted ? 'Search complete' : stageMeta?.label ?? 'Preparing the search pipeline'}
             </div>
             <div className="mt-1 text-[0.8rem] leading-6 text-slate-500">
-              {message.stageMessage ?? 'Searching across the current corpus.'}
+              {isCompleted ? 'The evidence pass has finished and the result view is being prepared.' : message.stageMessage ?? 'Searching across the current corpus.'}
             </div>
           </div>
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[1.28rem] font-black tracking-tight text-slate-950">{overallProgressPercent}%</div>
-          <div className="text-[0.62rem] font-bold uppercase tracking-[0.2em] text-slate-400">Progress</div>
+          <div className="text-[0.62rem] font-bold uppercase tracking-[0.2em] text-slate-400">{activeStageShort}</div>
         </div>
       </div>
 
@@ -303,37 +346,54 @@ function SearchProgressPanel({ message }: { message: SearchMessage }) {
         />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {SEARCH_STAGE_SEQUENCE.map((stage, index) => {
-          const stageNumber = index + 1;
-          const isCompleted = activeStageIndex > stageNumber || message.status === 'completed';
-          const isActive = message.currentStage === stage.id;
-          return (
-            <div
-              key={stage.id}
-              className={`search-stage-chip inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[0.66rem] font-bold uppercase tracking-[0.16em] transition-colors ${
-                isCompleted
-                  ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                  : isActive
-                    ? 'search-stage-chip--active border-slate-300 bg-slate-950 text-white'
-                    : 'border-slate-200 bg-slate-50 text-slate-400'
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isCompleted ? 'bg-indigo-500' : isActive ? 'bg-cyan-300' : 'bg-slate-300'
+      {compact ? (
+        <div className="mt-4 flex items-center gap-3">
+          <div className="search-stage-chip search-stage-chip--compact search-stage-chip--active inline-flex items-center gap-2 rounded-full border border-slate-300 bg-slate-950 px-3 py-2 text-[0.64rem] font-bold uppercase tracking-[0.16em] text-white">
+            <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
+            {activeStageShort}
+          </div>
+          <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-[0.62rem] font-bold uppercase tracking-[0.16em] text-slate-400">
+            Stage {progress?.stage_index ?? 0} of {progress?.stage_total ?? SEARCH_STAGE_SEQUENCE.length}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {SEARCH_STAGE_SEQUENCE.map((stage, index) => {
+            const stageNumber = index + 1;
+            const isCompleted = activeStageIndex > stageNumber || message.status === 'completed';
+            const isActive = message.currentStage === stage.id;
+            return (
+              <div
+                key={stage.id}
+                className={`search-stage-chip inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[0.64rem] font-bold uppercase tracking-[0.16em] transition-colors ${
+                  isCompleted
+                    ? 'search-stage-chip--completed border-indigo-200 bg-indigo-50 text-indigo-700'
+                    : isActive
+                      ? 'search-stage-chip--active border-slate-300 bg-slate-950 text-white'
+                      : 'border-slate-200 bg-slate-50 text-slate-400'
                 }`}
-              />
-              {stage.short}
-            </div>
-          );
-        })}
-      </div>
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    isCompleted ? 'bg-indigo-500' : isActive ? 'bg-cyan-300' : 'bg-slate-300'
+                  }`}
+                />
+                {stage.short}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-      {detail ? <div className="mt-3 text-[0.8rem] leading-6 text-slate-500">{detail}</div> : null}
+      {compact ? null : (
+        <>
+          {detail ? <div className="mt-3 text-[0.8rem] leading-6 text-slate-500">{detail}</div> : null}
+          {steadyNote ? <div className="mt-2 text-[0.75rem] font-medium leading-6 text-slate-400">{steadyNote}</div> : null}
+        </>
+      )}
     </div>
   );
-}
+});
 
 function SearchSuggestionPanel({
   onSelect,
@@ -379,21 +439,129 @@ function SearchSuggestionPanel({
   );
 }
 
-function SearchResultsSkeletonGrid() {
+const SearchRunningSkeletonGrid = memo(function SearchRunningSkeletonGrid() {
   return (
-    <div className='grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3'>
+    <div className='grid grid-cols-1 gap-5 lg:grid-cols-3'>
       {Array.from({ length: 3 }, (_, index) => (
-        <PaperResultCardSkeleton key={`skeleton-${index}`} index={index} />
+        <article
+          key={`running-skeleton-${index}`}
+          className='search-running-skeleton-card relative overflow-hidden rounded-[1.8rem] border border-slate-200/80 bg-white/96 p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]'
+        >
+          <div className='search-running-skeleton-bar h-5 w-24 rounded-full' />
+          <div className='mt-6 space-y-3'>
+            <div className='search-running-skeleton-bar h-4 w-[88%] rounded-full' />
+            <div className='search-running-skeleton-bar h-4 w-[72%] rounded-full' />
+            <div className='search-running-skeleton-bar h-4 w-[64%] rounded-full' />
+          </div>
+          <div className='mt-8 space-y-2'>
+            <div className='search-running-skeleton-bar h-3.5 w-full rounded-full' />
+            <div className='search-running-skeleton-bar h-3.5 w-[82%] rounded-full' />
+          </div>
+          <div className='mt-8 border-t border-slate-100 pt-4'>
+            <div className='search-running-skeleton-bar h-10 w-full rounded-[1.1rem]' />
+          </div>
+        </article>
       ))}
     </div>
   );
-}
+});
+
+const SearchRunningPreview = memo(function SearchRunningPreview({
+  run,
+}: {
+  run: ActiveSearchRun;
+}) {
+  const [clockMs, setClockMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setClockMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timerId);
+  }, []);
+
+  const progressMessage: SearchMessage = {
+    id: run.assistantId,
+    role: 'assistant',
+    content: 'Running evidence-aware scholarly retrieval.',
+    status: run.status === 'completed' ? 'completed' : 'loading',
+    currentStage: run.currentStage,
+    stageMessage: run.stageMessage,
+    progress: run.progress ?? null,
+  };
+  const stageElapsedMs = Math.max(0, clockMs - run.stageStartedAt);
+  const totalElapsedMs = Math.max(0, clockMs - run.startedAt);
+
+  return (
+    <main className="relative z-30 flex flex-1 items-start justify-center px-5 pb-14 pt-10 sm:px-8 sm:pt-14">
+      <div className="w-full max-w-[1040px]">
+        <div className="mx-auto flex max-w-[860px] flex-col items-center text-center">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-[0.68rem] font-bold uppercase tracking-[0.22em] text-slate-500">
+            <span className="h-2 w-2 rounded-full bg-indigo-500" />
+            Search in progress
+          </div>
+          <div className="search-query-bubble w-full max-w-[46rem] rounded-[2rem] border border-slate-200/80 bg-white px-7 py-6 shadow-[0_12px_32px_rgba(15,23,42,0.04)]">
+            <div className="mb-3 text-[0.68rem] font-bold uppercase tracking-[0.24em] text-slate-400">Query</div>
+            <div className="font-scholar text-[1.12rem] italic leading-9 text-slate-700">{run.query}</div>
+          </div>
+          <div className="mt-6 w-full flex justify-center">
+            <SearchProgressPanel message={progressMessage} stageElapsedMs={stageElapsedMs} totalElapsedMs={totalElapsedMs} compact />
+          </div>
+        </div>
+
+        <div className="mx-auto mt-10 max-w-[980px]">
+          <div className="mb-4 text-center text-[0.68rem] font-bold uppercase tracking-[0.22em] text-slate-400">
+            Preparing result cards
+          </div>
+          <SearchRunningSkeletonGrid />
+        </div>
+      </div>
+    </main>
+  );
+});
 
 function getSearchResultHeadline(message: SearchMessage): string {
   if ((message.content ?? '').toLowerCase().startsWith('restored search')) {
     return 'Workspace restored';
   }
   return 'Search complete';
+}
+
+function buildSearchStatusSnapshot(status: SearchJobStatus) {
+  return {
+    status: status.status,
+    currentStage: status.stage,
+    stageMessage: status.message,
+    progress: status.progress ?? null,
+  } satisfies Pick<ActiveSearchRun, 'status' | 'currentStage' | 'stageMessage' | 'progress'>;
+}
+
+function searchStatusSnapshotSignature(snapshot: Pick<ActiveSearchRun, 'status' | 'currentStage' | 'stageMessage' | 'progress'>): string {
+  return [snapshot.status, snapshot.currentStage ?? '', snapshot.stageMessage ?? '', progressSignature(snapshot.progress)].join('|');
+}
+
+function formatScopeChipLabel(corpusKey: string): string {
+  const [venue, year, track] = corpusKey.split('/');
+  if (!venue || !year || !track) {
+    return corpusKey;
+  }
+  return `${venue.toUpperCase()} ${year} ${track}`;
+}
+
+function summarizeWorkspaceScope(selectedCorpora: string[], catalog: CorpusCatalogEntry[]): string {
+  const catalogKeys = new Set(catalog.map((entry) => entry.corpus_key));
+  const available = selectedCorpora.filter((corpus) => catalogKeys.has(corpus));
+  const unavailableCount = selectedCorpora.length - available.length;
+  if (available.length === 0 && unavailableCount === 0) {
+    return 'No corpus selected';
+  }
+  if (available.length === 1 && unavailableCount === 0) {
+    return formatScopeChipLabel(available[0]!);
+  }
+  if (unavailableCount > 0) {
+    return `${available.length} active • ${unavailableCount} unavailable`;
+  }
+  return `${available.length} corpora selected`;
 }
 
 function SearchResultRevealGrid({
@@ -407,22 +575,23 @@ function SearchResultRevealGrid({
   onOpenPaper: (paper: PaperResult, traceId?: string | null) => void;
   onQuickPeek: (paper: PaperResult, traceId?: string | null) => void;
 }) {
+  const scope = useSequencedReveal([papers.map((paper) => paper.paper_id).join('|')]);
+
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
+    <div ref={scope} className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
       {papers.map((paper, index) => (
-        <motion.div
+        <div
           key={paper.paper_id}
-          initial={{ opacity: 0, y: 18, scale: 0.985 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.32, ease: 'easeOut', delay: Math.min(index, 5) * 0.07 }}
+          data-reveal-item
           className="search-result-reveal"
+          style={{ animationDelay: `${Math.min(index, 5) * 70}ms` }}
         >
           <PaperResultCard
             paper={paper}
             onOpenPaper={(nextPaper) => onOpenPaper(nextPaper, traceId)}
             onQuickPeek={(nextPaper) => onQuickPeek(nextPaper, traceId)}
           />
-        </motion.div>
+        </div>
       ))}
     </div>
   );
@@ -440,6 +609,7 @@ function SearchTracePanel({
   }
 
   const isOpen = message.traceOpen ?? false;
+  const tracePresence = usePresence(isOpen, 180);
   const trace = message.trace ?? null;
   const sourceSizes = (trace?.filter_summary?.source_sizes ?? {}) as Record<string, number>;
   const verifierSummary = (trace?.verifier_summary ?? {}) as Record<string, unknown>;
@@ -464,15 +634,9 @@ function SearchTracePanel({
         </div>
       </button>
 
-      <AnimatePresence initial={false}>
-        {isOpen ? (
-          <motion.div
-            initial={{ opacity: 0, height: 0, y: 8 }}
-            animate={{ opacity: 1, height: 'auto', y: 0 }}
-            exit={{ opacity: 0, height: 0, y: 6 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className='overflow-hidden'
-          >
+      {tracePresence.mounted ? (
+        <div className='psa-collapse overflow-hidden' data-state={isOpen ? 'open' : 'closed'}>
+          <div>
             {message.traceState === 'loading' ? (
               <div className='mt-4 flex items-center gap-2 text-[0.82rem] font-semibold uppercase tracking-[0.16em] text-slate-500'>
                 <Loader2 className='h-3.5 w-3.5 animate-spin' />
@@ -486,6 +650,30 @@ function SearchTracePanel({
               <div className='mt-5 grid gap-4 lg:grid-cols-2'>
                 <div className='rounded-[1.3rem] border border-slate-200 bg-slate-50/80 p-4'>
                   <div className='text-[0.66rem] font-bold uppercase tracking-[0.22em] text-slate-400'>Planner</div>
+                  {trace.workspace_scope.length > 0 ? (
+                    <div className='mt-4'>
+                      <div className='mb-2 text-[0.64rem] font-bold uppercase tracking-[0.18em] text-slate-400'>Workspace scope</div>
+                      <div className='flex flex-wrap gap-2'>
+                        {trace.workspace_scope.map((corpusKey) => (
+                          <span key={`workspace-${corpusKey}`} className='rounded-full border border-slate-200 bg-white px-3 py-1 text-[0.72rem] font-semibold text-slate-600'>
+                            {formatScopeChipLabel(corpusKey)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {trace.effective_scope.length > 0 ? (
+                    <div className='mt-4'>
+                      <div className='mb-2 text-[0.64rem] font-bold uppercase tracking-[0.18em] text-slate-400'>Effective scope</div>
+                      <div className='flex flex-wrap gap-2'>
+                        {trace.effective_scope.map((corpusKey) => (
+                          <span key={`effective-${corpusKey}`} className='rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[0.72rem] font-semibold text-indigo-600'>
+                            {formatScopeChipLabel(corpusKey)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className='mt-3 flex flex-wrap gap-2'>
                     {trace.query_plan.scope_constraints.venues.map((venue) => (
                       <span key={`venue-${venue}`} className='rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[0.72rem] font-semibold text-indigo-600'>
@@ -495,6 +683,11 @@ function SearchTracePanel({
                     {trace.query_plan.scope_constraints.years.map((year) => (
                       <span key={`year-${year}`} className='rounded-full border border-slate-200 bg-white px-3 py-1 text-[0.72rem] font-semibold text-slate-600'>
                         {year}
+                      </span>
+                    ))}
+                    {(trace.query_plan.scope_constraints.tracks ?? []).map((track) => (
+                      <span key={`track-${track}`} className='rounded-full border border-slate-200 bg-white px-3 py-1 text-[0.72rem] font-semibold text-slate-600'>
+                        {track}
                       </span>
                     ))}
                     {trace.query_plan.entity_terms.slice(0, 6).map((term) => (
@@ -568,9 +761,9 @@ function SearchTracePanel({
             ) : (
               <div className='mt-4 text-[0.9rem] leading-7 text-slate-500'>Open this panel to load the structured search trace.</div>
             )}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -594,6 +787,7 @@ function WorkspaceConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { mounted, phase } = usePresence(open, 180);
   const accentClassName =
     tone === 'danger'
       ? 'border-rose-200 bg-rose-50 text-rose-600'
@@ -603,24 +797,21 @@ function WorkspaceConfirmDialog({
       ? 'bg-rose-600 hover:bg-rose-700 focus-visible:ring-rose-300'
       : 'bg-slate-950 hover:bg-indigo-600 focus-visible:ring-indigo-300';
 
+  if (!mounted) {
+    return null;
+  }
+
   return (
-    <AnimatePresence>
-      {open ? (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={busy ? undefined : onCancel}
-            className="absolute inset-0 bg-slate-950/34 backdrop-blur-[6px]"
-          />
-          <motion.section
-            initial={{ opacity: 0, y: 14, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.97 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="relative z-10 w-full max-w-[480px] overflow-hidden rounded-[2rem] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.98))] shadow-[0_30px_90px_rgba(15,23,42,0.24)]"
-          >
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6">
+      <div
+        data-state={phase}
+        onClick={busy ? undefined : onCancel}
+        className="psa-overlay-backdrop absolute inset-0 bg-slate-950/34"
+      />
+      <section
+        data-state={phase}
+        className="psa-modal-surface relative z-10 w-full max-w-[480px] overflow-hidden rounded-[2rem] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.98))] shadow-[0_30px_90px_rgba(15,23,42,0.24)]"
+      >
             <div className="border-b border-slate-200/70 px-7 py-6">
               <div className="flex items-start gap-4">
                 <div className={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[1rem] border ${accentClassName}`}>
@@ -651,15 +842,14 @@ function WorkspaceConfirmDialog({
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : confirmLabel}
               </button>
             </div>
-          </motion.section>
-        </div>
-      ) : null}
-    </AnimatePresence>
+      </section>
+    </div>
   );
 }
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<SearchMessage[]>([]);
+  const [activeSearchRun, setActiveSearchRun] = useState<ActiveSearchRun | null>(null);
   const [input, setInput] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [selectedPaper, setSelectedPaper] = useState<PaperResult | null>(null);
@@ -673,8 +863,11 @@ export default function ChatPage() {
   const [projectDetail, setProjectDetail] = useState<ProjectDetailResponse | null>(null);
   const [projectState, setProjectState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [corpusCatalog, setCorpusCatalog] = useState<CorpusCatalogEntry[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isProjectPanelOpen, setIsProjectPanelOpen] = useState(false);
   const [isProjectMutating, setIsProjectMutating] = useState(false);
+  const [isScopeSaving, setIsScopeSaving] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [workspaceActionIntent, setWorkspaceActionIntent] = useState<WorkspaceActionIntent | null>(null);
 
@@ -689,8 +882,34 @@ export default function ChatPage() {
   const currentProjectIdRef = useRef<string | null>(null);
   const paperSessionPersistTimersRef = useRef<Record<string, number>>({});
   const lastPaperSessionPersistSignatureRef = useRef<Record<string, string>>({});
+  const activeSearchSnapshotRef = useRef<string>('none');
+  const activeSearchUpdatedAtRef = useRef(0);
   const hasSearchHistory = messages.length > 0;
+  const hasThreadView = hasSearchHistory || activeSearchRun != null;
+  const isRunningView = activeSearchRun != null;
   const currentProjectTitle = projectDetail?.project.title ?? projects.find((project) => project.project_id === currentProjectId)?.title ?? null;
+  const currentSelectedCorpora = projectDetail?.project.selected_corpora ?? [];
+  const currentCatalogKeySet = useMemo(() => new Set(corpusCatalog.map((entry) => entry.corpus_key)), [corpusCatalog]);
+  const unavailableSelectedCorpora = useMemo(
+    () => currentSelectedCorpora.filter((corpus) => !currentCatalogKeySet.has(corpus)),
+    [currentCatalogKeySet, currentSelectedCorpora],
+  );
+  const scopeSummary = useMemo(
+    () => summarizeWorkspaceScope(currentSelectedCorpora, corpusCatalog),
+    [corpusCatalog, currentSelectedCorpora],
+  );
+  const searchBlockedReason = useMemo(() => {
+    if (!currentProjectId) {
+      return null;
+    }
+    if (currentSelectedCorpora.length === 0) {
+      return 'Select at least one corpus in this workspace before searching.';
+    }
+    if (unavailableSelectedCorpora.length > 0) {
+      return 'Remove unavailable corpora from this workspace before searching.';
+    }
+    return null;
+  }, [currentProjectId, currentSelectedCorpora.length, unavailableSelectedCorpora.length]);
   const hasWorkspaces = projects.length > 0;
   const isProjectBusy = projectState === 'loading' || isProjectMutating;
   const headerActivityMode = useTransientActivityMode(isSearching);
@@ -748,13 +967,17 @@ export default function ChatPage() {
   const openSearchPalette = useCallback((prefill?: string) => {
     const nextValue = prefill ?? input.trim() ?? '';
     setPaletteInput(nextValue);
-    setPreviewPaper(null);
-    setIsComposerFocused(false);
-    setIsPaletteOpen(true);
+    runViewTransition(() => {
+      setPreviewPaper(null);
+      setIsComposerFocused(false);
+      setIsPaletteOpen(true);
+    });
   }, [input]);
 
   const closeSearchPalette = useCallback(() => {
-    setIsPaletteOpen(false);
+    runViewTransition(() => {
+      setIsPaletteOpen(false);
+    });
   }, []);
 
   const syncProjectDetailState = useCallback((detail: ProjectDetailResponse) => {
@@ -768,6 +991,16 @@ export default function ChatPage() {
     syncProjectDetailState(detail);
     return detail;
   }, [syncProjectDetailState]);
+
+  const loadCorpusCatalog = useCallback(async () => {
+    try {
+      const response = await fetchCorpusCatalog();
+      setCorpusCatalog(response.corpora);
+      setCatalogError(null);
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Corpus catalog could not be loaded.');
+    }
+  }, []);
 
   const restoreProjectThread = useCallback(
     async (thread: ProjectSearchThread, options: { openPaperId?: string | null; closePanel?: boolean } = {}) => {
@@ -784,15 +1017,19 @@ export default function ChatPage() {
       const displayResults = restoredMessages[1]?.results ?? [];
 
       pendingSearchScrollTopRef.current = 0;
-      setMessages(restoredMessages);
-      setPreviewPaper(null);
-      setSelectedPaper(null);
-      setActiveThreadId(thread.thread_id);
+      runViewTransition(() => {
+        setMessages(restoredMessages);
+        setPreviewPaper(null);
+        setSelectedPaper(null);
+        setActiveThreadId(thread.thread_id);
+      });
 
       if (options.openPaperId) {
         const targetPaper = displayResults.find((paper) => paper.paper_id === options.openPaperId) ?? null;
         if (targetPaper) {
-          setSelectedPaper(targetPaper);
+          runViewTransition(() => {
+            setSelectedPaper(targetPaper);
+          });
         }
       }
 
@@ -876,6 +1113,9 @@ export default function ChatPage() {
           trace_id: thread.trace_id,
           result_counts: thread.result_counts,
           paper_ids: thread.paper_ids,
+          workspace_scope: thread.workspace_scope,
+          query_scope: thread.query_scope,
+          effective_scope: thread.effective_scope,
         });
         if (currentProjectIdRef.current === projectId) {
           await refreshProjectContext(projectId);
@@ -976,7 +1216,7 @@ export default function ChatPage() {
     }
     setIsProjectMutating(true);
     try {
-      const renamed = await renameProject(projectId, { title: title.trim() });
+      const renamed = await updateProject(projectId, { title: title.trim() });
       const projectList = await listProjects();
       setProjects(projectList.projects);
       setProjectDetail((previous) => {
@@ -985,11 +1225,7 @@ export default function ChatPage() {
         }
         return {
           ...previous,
-          project: {
-            ...previous.project,
-            title: renamed.title,
-            updated_at: renamed.updated_at,
-          },
+          project: renamed,
         };
       });
     } catch (error) {
@@ -999,6 +1235,34 @@ export default function ChatPage() {
       setIsProjectMutating(false);
     }
   }, [isProjectBusy]);
+
+  const handleUpdateProjectScope = useCallback(async (projectId: string, selectedCorpora: string[]) => {
+    if (isProjectBusy || isScopeSaving) {
+      return;
+    }
+    setIsScopeSaving(true);
+    try {
+      const updated = await updateProject(projectId, { selected_corpora: selectedCorpora });
+      const projectList = await listProjects();
+      setProjects(projectList.projects);
+      setProjectDetail((previous) => {
+        if (!previous || previous.project.project_id !== projectId) {
+          return previous;
+        }
+        return {
+          ...previous,
+          project: updated,
+        };
+      });
+      setProjectError(null);
+      setProjectState('ready');
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : 'Workspace scope could not be updated.');
+      setProjectState('error');
+    } finally {
+      setIsScopeSaving(false);
+    }
+  }, [isProjectBusy, isScopeSaving]);
 
   const executeClearProject = useCallback(async () => {
     if (!currentProjectId || isProjectBusy) {
@@ -1092,99 +1356,73 @@ export default function ChatPage() {
     void loadProjectWorkspace(loadCurrentProjectId(), { restoreLatestThread: true });
   }, [loadProjectWorkspace]);
 
+  useEffect(() => {
+    void loadCorpusCatalog();
+  }, [loadCorpusCatalog]);
+
   const handleSearch = useCallback(async (query: string) => {
     const normalizedQuery = query.trim();
-    if (!normalizedQuery || searchInFlightRef.current || projectState === 'loading') {
+    if (!normalizedQuery || searchInFlightRef.current || projectState === 'loading' || searchBlockedReason) {
       return;
     }
     searchInFlightRef.current = true;
 
-    const userMessage: SearchMessage = {
-      id: `${Date.now()}-user`,
-      role: 'user',
-      content: normalizedQuery,
-    };
-
     const assistantId = `${Date.now()}-assistant`;
-    const loadingMessage: SearchMessage = {
-      id: assistantId,
-      role: 'assistant',
-      content: 'Running evidence-aware scholarly retrieval.',
-      status: 'loading',
+    const searchStartedAt = Date.now();
+    setActiveSearchRun({
+      assistantId,
+      query: normalizedQuery,
+      status: 'running',
       currentStage: 'queued',
       stageMessage: 'Submitting the search job.',
       progress: null,
-    };
-
-    setMessages((previous) => [...previous, userMessage, loadingMessage]);
+      startedAt: searchStartedAt,
+      stageStartedAt: searchStartedAt,
+    });
+    activeSearchSnapshotRef.current = 'running|queued|Submitting the search job.|none';
+    activeSearchUpdatedAtRef.current = Date.now();
     setInput('');
     setIsSearching(true);
     setPreviewPaper(null);
 
     try {
       const targetProjectId = await ensureWorkspaceForSearch();
-      const job = await createSearchJob({ query: normalizedQuery, top_k: 15, display_k: 10 });
+      const job = await createSearchJob({ project_id: targetProjectId, query: normalizedQuery, top_k: 15, display_k: 10 });
       let lastStatus: SearchJobStatus = job;
+      const applyActiveSearchStatus = (status: SearchJobStatus, force = false) => {
+        const snapshot = buildSearchStatusSnapshot(status);
+        const nextSignature = searchStatusSnapshotSignature(snapshot);
+        const now = Date.now();
+        const shouldCommit =
+          force ||
+          nextSignature !== activeSearchSnapshotRef.current ||
+          now - activeSearchUpdatedAtRef.current >= 900;
 
-      setMessages((previous) => {
-        let changed = false;
-        const next = previous.map((message) => {
-          if (message.id !== assistantId) {
-            return message;
+        if (!shouldCommit) {
+          return;
+        }
+
+        activeSearchSnapshotRef.current = nextSignature;
+        activeSearchUpdatedAtRef.current = now;
+        setActiveSearchRun((previous) => {
+          if (!previous || previous.assistantId !== assistantId) {
+            return previous;
           }
-
-          const nextProgress = job.progress ?? null;
-          if (
-            message.currentStage === job.stage &&
-            message.stageMessage === job.message &&
-            progressSignature(message.progress) === progressSignature(nextProgress)
-          ) {
-            return message;
-          }
-
-          changed = true;
+          const stageChanged = previous.currentStage !== snapshot.currentStage;
           return {
-            ...message,
-            currentStage: job.stage,
-            stageMessage: job.message,
-            progress: nextProgress,
+            ...previous,
+            ...snapshot,
+            stageStartedAt: force || stageChanged ? now : previous.stageStartedAt,
           };
         });
+      };
 
-        return changed ? next : previous;
-      });
+      applyActiveSearchStatus(job, true);
 
       while (lastStatus.status !== 'completed' && lastStatus.status !== 'failed') {
         await new Promise((resolve) => setTimeout(resolve, 1400));
         lastStatus = await fetchSearchJob(job.job_id);
-
-        setMessages((previous) => {
-          let changed = false;
-          const next = previous.map((message) => {
-            if (message.id !== assistantId) {
-              return message;
-            }
-
-            const nextProgress = lastStatus.progress ?? null;
-            if (
-              message.currentStage === lastStatus.stage &&
-              message.stageMessage === lastStatus.message &&
-              progressSignature(message.progress) === progressSignature(nextProgress)
-            ) {
-              return message;
-            }
-
-            changed = true;
-            return {
-              ...message,
-              currentStage: lastStatus.stage,
-              stageMessage: lastStatus.message,
-              progress: nextProgress,
-            };
-          });
-
-          return changed ? next : previous;
-        });
+        applyActiveSearchStatus(lastStatus);
       }
 
       if (lastStatus.status === 'completed') {
@@ -1199,27 +1437,53 @@ export default function ChatPage() {
           updated_at: new Date().toISOString(),
           result_counts: result.counts,
           paper_ids: displayPapers.map((paper) => paper.paper_id),
+          workspace_scope: result.workspace_scope,
+          query_scope: result.query_scope,
+          effective_scope: result.effective_scope,
         };
 
-        setMessages((previous) =>
-          previous.map((message) =>
-            message.id === assistantId
-              ? {
-                  ...message,
-                  content: `Search complete. ${displayPapers.length} papers are ready for review.`,
-                  status: 'completed',
-                  type: 'search_results',
-                  results: displayPapers,
-                  progress: lastStatus.progress ?? null,
-                  traceId: result.trace_id,
-                  trace: null,
-                  traceState: 'idle',
-                  traceError: null,
-                  traceOpen: false,
-                }
-              : message,
-          ),
+        const userMessage: SearchMessage = {
+          id: `${Date.now()}-user`,
+          role: 'user',
+          content: normalizedQuery,
+        };
+        const resultMessage: SearchMessage = {
+          id: assistantId,
+          role: 'assistant',
+          content: `Search complete. ${displayPapers.length} papers are ready for review.`,
+          status: 'completed',
+          type: 'search_results',
+          results: displayPapers,
+          progress: lastStatus.progress ?? null,
+          traceId: result.trace_id,
+          trace: null,
+          traceState: 'idle',
+          traceError: null,
+          traceOpen: false,
+        };
+
+        setActiveSearchRun((previous) =>
+          previous && previous.assistantId === assistantId
+            ? {
+                ...previous,
+                status: 'completed',
+                currentStage: 'completed',
+                stageMessage: 'Preparing the result view.',
+                progress: {
+                  stage_index: lastStatus.progress?.stage_total ?? lastStatus.progress?.stage_index ?? SEARCH_STAGE_SEQUENCE.length,
+                  stage_total: lastStatus.progress?.stage_total ?? SEARCH_STAGE_SEQUENCE.length,
+                  stage_progress: 1,
+                  overall_progress: 1,
+                  completed_items: lastStatus.progress?.completed_items ?? null,
+                  total_items: lastStatus.progress?.total_items ?? null,
+                },
+                stageStartedAt: Date.now(),
+              }
+            : previous,
         );
+        await new Promise((resolve) => window.setTimeout(resolve, 420));
+        setActiveSearchRun(null);
+        setMessages((previous) => [...previous, userMessage, resultMessage]);
         setActiveThreadId(result.trace_id);
         void persistProjectThread(targetProjectId, threadRecord);
         return;
@@ -1227,23 +1491,26 @@ export default function ChatPage() {
 
       throw new Error('Search failed.');
     } catch {
-      setMessages((previous) =>
-        previous.map((message) =>
-          message.id === assistantId
-            ? {
-                ...message,
-                content: 'The search did not complete successfully.',
-                status: 'error',
-                progress: null,
-              }
-            : message,
-        ),
-      );
+      const userMessage: SearchMessage = {
+        id: `${Date.now()}-user`,
+        role: 'user',
+        content: normalizedQuery,
+      };
+      const errorMessage: SearchMessage = {
+        id: assistantId,
+        role: 'assistant',
+        content: 'The search did not complete successfully.',
+        status: 'error',
+        progress: null,
+      };
+      setActiveSearchRun(null);
+      setMessages((previous) => [...previous, userMessage, errorMessage]);
     } finally {
       searchInFlightRef.current = false;
       setIsSearching(false);
+      activeSearchSnapshotRef.current = 'none';
     }
-  }, [ensureWorkspaceForSearch, persistProjectThread, projectState]);
+  }, [ensureWorkspaceForSearch, persistProjectThread, projectState, searchBlockedReason]);
 
   const handleToggleTrace = useCallback(async (messageId: string) => {
     const message = messages.find((item) => item.id === messageId);
@@ -1314,12 +1581,14 @@ export default function ChatPage() {
       return;
     }
 
-    setIsPaletteOpen(false);
-    setPaletteInput('');
-    setPreviewPaper(null);
-    if (selectedPaper) {
-      setSelectedPaper(null);
-    }
+    runViewTransition(() => {
+      setIsPaletteOpen(false);
+      setPaletteInput('');
+      setPreviewPaper(null);
+      if (selectedPaper) {
+        setSelectedPaper(null);
+      }
+    });
     void handleSearch(normalizedQuery);
   }, [handleSearch, isSearching, selectedPaper]);
 
@@ -1351,20 +1620,26 @@ export default function ChatPage() {
   }, [activeThreadId, currentProjectId, persistProjectPaperSession, selectedPaper]);
 
   const handleQuickPeek = useCallback((paper: PaperResult, threadId?: string | null) => {
-    setPreviewPaper({ paper, threadId: threadId ?? activeThreadId ?? null });
+    runViewTransition(() => {
+      setPreviewPaper({ paper, threadId: threadId ?? activeThreadId ?? null });
+    });
   }, [activeThreadId]);
 
   const handleOpenPaper = useCallback((paper: PaperResult, threadId?: string | null) => {
     pendingSearchScrollTopRef.current = searchScrollRef.current?.scrollTop ?? 0;
-    setPreviewPaper(null);
-    if (threadId) {
-      setActiveThreadId(threadId);
-    }
-    setSelectedPaper(paper);
+    runViewTransition(() => {
+      setPreviewPaper(null);
+      if (threadId) {
+        setActiveThreadId(threadId);
+      }
+      setSelectedPaper(paper);
+    });
   }, []);
 
   const handleBackFromPaper = useCallback(() => {
-    setSelectedPaper(null);
+    runViewTransition(() => {
+      setSelectedPaper(null);
+    });
   }, []);
 
   useEffect(() => {
@@ -1427,7 +1702,7 @@ export default function ChatPage() {
                 ref={composerTextareaRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                disabled={isSearching}
+                disabled={isSearching || searchBlockedReason != null}
                 rows={isHero ? 4 : 2}
                 placeholder='Ask for papers, datasets, methods, or evidence.'
                 onKeyDown={(event) => {
@@ -1447,7 +1722,7 @@ export default function ChatPage() {
               />
               <button
                 type='submit'
-                disabled={isSearching || input.trim().length === 0}
+                disabled={isSearching || input.trim().length === 0 || searchBlockedReason != null}
                 className={`absolute right-3 top-1/2 inline-flex -translate-y-1/2 items-center justify-center rounded-full bg-slate-950 text-white transition-all hover:bg-indigo-600 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-300 ${
                   isHero ? 'h-12 w-12' : 'h-11 w-11'
                 }`}
@@ -1464,29 +1739,33 @@ export default function ChatPage() {
             </div>
           </form>
 
-          <AnimatePresence initial={false}>
-            {showSuggestions ? (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
-                className={isHero ? 'relative z-30' : 'relative z-30'}
-              >
-                <SearchSuggestionPanel
-                  variant={variant}
-                  onSelect={(query) => {
-                    setInput(query);
-                    composerTextareaRef.current?.focus();
-                  }}
-                />
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
+          {searchBlockedReason ? (
+            <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 px-4 py-3 text-[0.84rem] leading-6 text-amber-700">
+              {searchBlockedReason}
+            </div>
+          ) : null}
+
+          {!searchBlockedReason && catalogError ? (
+            <div className="rounded-[1.25rem] border border-rose-200 bg-rose-50 px-4 py-3 text-[0.84rem] leading-6 text-rose-700">
+              {catalogError}
+            </div>
+          ) : null}
+
+          {showSuggestions ? (
+            <div className={isHero ? 'relative z-30 psa-fade-up-enter' : 'relative z-30 psa-fade-up-enter'}>
+              <SearchSuggestionPanel
+                variant={variant}
+                onSelect={(query) => {
+                  setInput(query);
+                  composerTextareaRef.current?.focus();
+                }}
+              />
+            </div>
+          ) : null}
         </div>
       );
     },
-    [handleSearch, input, isComposerFocused, isSearching],
+    [catalogError, handleSearch, input, isComposerFocused, isSearching, searchBlockedReason],
   );
 
   if (projectState === 'loading' && currentProjectId == null && !projectDetail) {
@@ -1528,19 +1807,22 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="relative flex min-h-dvh flex-col overflow-x-hidden bg-transparent pt-[5.6rem] text-slate-900">
+    <div className={`relative flex min-h-dvh flex-col overflow-x-hidden pt-[5.6rem] text-slate-900 ${isRunningView ? 'bg-[#f6f8fb]' : 'bg-transparent'}`}>
       <ProjectWorkspacePanel
         open={isProjectPanelOpen}
         loading={projectState === 'loading'}
         disabled={isSearching || isProjectBusy}
+        scopeSaving={isScopeSaving}
         projects={projects}
         currentProjectId={currentProjectId}
         detail={projectDetail}
+        corpusCatalog={corpusCatalog}
         error={projectError}
-        onClose={() => setIsProjectPanelOpen(false)}
+        onClose={() => runViewTransition(() => setIsProjectPanelOpen(false))}
         onSelectProject={(projectId) => void handleSelectProject(projectId)}
         onCreateProject={() => void handleCreateProject()}
         onRenameProject={(projectId, title) => void handleRenameProject(projectId, title)}
+        onUpdateProjectScope={(projectId, selectedCorpora) => void handleUpdateProjectScope(projectId, selectedCorpora)}
         onClearProject={() => void handleClearProject()}
         onDeleteProject={() => void handleDeleteProject()}
         onRestoreThread={(thread) => void handleRestoreSavedThread(thread)}
@@ -1564,23 +1846,18 @@ export default function ChatPage() {
         onCancel={handleCancelWorkspaceAction}
         onConfirm={() => void handleConfirmWorkspaceAction()}
       />
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute left-[-8rem] top-[-9rem] h-[26rem] w-[26rem] rounded-full bg-indigo-200/25 blur-3xl" />
-        <div className="absolute right-[-10rem] top-[8rem] h-[30rem] w-[30rem] rounded-full bg-cyan-100/30 blur-3xl" />
-        <div className="absolute bottom-[-12rem] left-1/2 h-[26rem] w-[40rem] -translate-x-1/2 rounded-full bg-slate-200/30 blur-3xl" />
-      </div>
-      <AnimatePresence>
-        {isComposerFocused ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className='pointer-events-none absolute inset-0 z-20 bg-[linear-gradient(180deg,rgba(15,23,42,0.06),rgba(15,23,42,0.14))] backdrop-blur-[2px]'
-          />
-        ) : null}
-      </AnimatePresence>
+      {!isRunningView ? (
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute left-[-8rem] top-[-9rem] h-[26rem] w-[26rem] rounded-full bg-[radial-gradient(circle,rgba(165,180,252,0.28),rgba(165,180,252,0)_68%)]" />
+          <div className="absolute right-[-10rem] top-[8rem] h-[30rem] w-[30rem] rounded-full bg-[radial-gradient(circle,rgba(186,230,253,0.28),rgba(186,230,253,0)_68%)]" />
+          <div className="absolute bottom-[-12rem] left-1/2 h-[26rem] w-[40rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(226,232,240,0.42),rgba(226,232,240,0)_72%)]" />
+        </div>
+      ) : null}
+      {isComposerFocused ? (
+        <div className='pointer-events-none absolute inset-0 z-20 bg-[linear-gradient(180deg,rgba(15,23,42,0.06),rgba(15,23,42,0.14))] backdrop-blur-[2px]' />
+      ) : null}
 
-      <header className="glass-header fixed inset-x-0 top-0 z-50">
+      <header className={`${isRunningView ? 'border-b border-slate-200/70 bg-white/92' : 'glass-header'} fixed inset-x-0 top-0 z-50`}>
         <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between px-5 py-4 sm:px-8">
           <div className="flex items-center gap-4">
             <ActivityMark
@@ -1588,6 +1865,7 @@ export default function ChatPage() {
               label={headerActivityMode === 'active' ? 'Searching' : headerActivityMode === 'done' ? 'Ready' : null}
               layout="stacked"
               size="lg"
+              minimal={isRunningView}
             />
             <div>
               <div className="text-[0.95rem] font-black tracking-tight text-slate-950">Scholar Agent</div>
@@ -1595,6 +1873,11 @@ export default function ChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {currentProjectId ? (
+              <div className={`hidden max-w-[18rem] truncate rounded-full border px-4 py-2 text-[0.66rem] font-bold uppercase tracking-[0.16em] text-slate-500 xl:inline-flex ${isRunningView ? 'border-slate-200 bg-white shadow-none' : 'border-white/75 bg-white/80 shadow-scholar-sm backdrop-blur-xl'}`}>
+                {scopeSummary}
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={() => {
@@ -1602,9 +1885,9 @@ export default function ChatPage() {
                   void handleCreateProject();
                   return;
                 }
-                setIsProjectPanelOpen(true);
+                runViewTransition(() => setIsProjectPanelOpen(true));
               }}
-              className="inline-flex items-center gap-3 rounded-full border border-white/75 bg-white/80 px-4 py-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-slate-600 shadow-scholar-sm backdrop-blur-xl transition hover:border-indigo-200 hover:text-indigo-600"
+              className={`inline-flex items-center gap-3 rounded-full border px-4 py-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-slate-600 transition hover:border-indigo-200 hover:text-indigo-600 ${isRunningView ? 'border-slate-200 bg-white shadow-none' : 'border-white/75 bg-white/80 shadow-scholar-sm backdrop-blur-xl'}`}
             >
               {hasWorkspaces ? <FolderOpen className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
               <span className="max-w-[10rem] truncate">{hasWorkspaces ? currentProjectTitle : 'Create workspace'}</span>
@@ -1612,7 +1895,7 @@ export default function ChatPage() {
             <button
               type="button"
               onClick={() => openSearchPalette()}
-              className="inline-flex items-center gap-3 rounded-full border border-white/75 bg-white/80 px-4 py-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-slate-600 shadow-scholar-sm backdrop-blur-xl transition hover:border-indigo-200 hover:text-indigo-600"
+              className={`inline-flex items-center gap-3 rounded-full border px-4 py-2 text-[0.72rem] font-bold uppercase tracking-[0.18em] text-slate-600 transition hover:border-indigo-200 hover:text-indigo-600 ${isRunningView ? 'border-slate-200 bg-white shadow-none' : 'border-white/75 bg-white/80 shadow-scholar-sm backdrop-blur-xl'}`}
             >
               <Search className="h-3.5 w-3.5" />
               Search
@@ -1622,25 +1905,23 @@ export default function ChatPage() {
             </button>
           </div>
         </div>
-        <div
-          className={`header-status-rail ${
-            headerActivityMode === 'active'
-              ? 'header-status-rail--active'
-              : headerActivityMode === 'done'
-                ? 'header-status-rail--done'
-                : ''
-          }`}
-        />
+        {!isRunningView ? (
+          <div
+            className={`header-status-rail ${
+              headerActivityMode === 'active'
+                ? 'header-status-rail--active'
+                : headerActivityMode === 'done'
+                  ? 'header-status-rail--done'
+                  : ''
+            }`}
+          />
+        ) : null}
       </header>
 
-      <AnimatePresence mode="wait">
-        {!hasSearchHistory ? (
-          <motion.main
+      {!hasThreadView ? (
+          <main
             key="hero"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            className="relative z-30 flex flex-1 items-center"
+            className="psa-main-switch relative z-30 flex flex-1 items-center"
           >
             <div className="mx-auto flex w-full max-w-[1440px] flex-1 items-center px-5 py-10 sm:px-8">
               <section className="mx-auto w-full max-w-[1040px] text-center">
@@ -1676,41 +1957,26 @@ export default function ChatPage() {
                 ) : null}
               </section>
             </div>
-          </motion.main>
+          </main>
+        ) : isRunningView && activeSearchRun ? (
+          <SearchRunningPreview run={activeSearchRun} />
         ) : (
-          <motion.div
+          <div
             key="thread"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            className="relative z-30 flex flex-1 flex-col"
+            className="psa-main-switch relative z-30 flex flex-1 flex-col"
           >
             <main ref={searchScrollRef} className="custom-scrollbar flex-1 overflow-y-auto">
               <div className="mx-auto w-full max-w-[1440px] px-5 pb-12 pt-10 sm:px-8">
                 <div className="mx-auto max-w-[1220px] space-y-8">
                   {messages.map((message) => {
-                    const isLoadingAssistant = message.role === 'assistant' && message.status === 'loading';
                     const isSearchResultMessage = message.type === 'search_results' && !!message.results;
-
-                    if (isLoadingAssistant) {
-                      return (
-                        <section key={message.id} className="flex justify-center">
-                          <div className="w-full max-w-[1180px]">
-                            <div className="mx-auto max-w-[980px] space-y-6">
-                              <SearchProgressPanel message={message} />
-                              <SearchResultsSkeletonGrid />
-                            </div>
-                          </div>
-                        </section>
-                      );
-                    }
 
                     if (isSearchResultMessage) {
                       return (
                         <section key={message.id} className="flex justify-center">
                           <div className="w-full max-w-[1180px]">
                             <div className="space-y-5">
-                              <div className="overflow-hidden rounded-[1.9rem] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,249,252,0.96))] px-6 py-5 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
+                              <div className="assistant-answer-ready overflow-hidden rounded-[1.9rem] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,249,252,0.96))] px-6 py-5 shadow-[0_22px_60px_rgba(15,23,42,0.08)]">
                                 <div className="flex items-start justify-between gap-4">
                                   <div className="min-w-0 flex items-center gap-3">
                                     <ActivityMark mode="done" label={null} layout="inline" size="md" />
@@ -1789,13 +2055,12 @@ export default function ChatPage() {
                 <div className="mx-auto max-w-[1080px]">{renderQueryForm('dock')}</div>
               </div>
             </footer>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
 
       <QuickPeekPanel
         paper={previewPaper?.paper ?? null}
-        onClose={() => setPreviewPaper(null)}
+        onClose={() => runViewTransition(() => setPreviewPaper(null))}
         onOpenPaper={(paper) => handleOpenPaper(paper, previewPaper?.threadId ?? null)}
       />
       <GlobalSearchPalette

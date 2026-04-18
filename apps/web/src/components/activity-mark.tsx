@@ -10,6 +10,7 @@ type ActivityMarkProps = {
   label?: string | null;
   layout?: 'stacked' | 'inline';
   size?: 'sm' | 'md' | 'lg';
+  minimal?: boolean;
   className?: string;
 };
 
@@ -51,6 +52,7 @@ export function ActivityMark({
   label,
   layout = 'inline',
   size = 'md',
+  minimal = false,
   className = '',
 }: ActivityMarkProps) {
   const sizeClassName =
@@ -68,7 +70,7 @@ export function ActivityMark({
 
   return (
     <div className={`${wrapperClassName} ${className}`.trim()}>
-      <div className={`psa-activity-mark psa-activity-mark--${mode}`}>
+      <div className={`psa-activity-mark psa-activity-mark--${mode} ${minimal ? 'psa-activity-mark--minimal' : ''}`.trim()}>
         <span className={`psa-activity-mark-aura ${sizeClassName}`} />
         <span
           className={`psa-activity-mark-shell ${sizeClassName} inline-flex items-center justify-center border border-white/15 text-white`}

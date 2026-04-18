@@ -148,6 +148,9 @@ export type SearchJobResult = {
   query: string;
   trace_id: string;
   mode: string;
+  workspace_scope: string[];
+  query_scope: ScopeConstraints;
+  effective_scope: string[];
   counts: {
     satisfied: number;
     partial: number;
@@ -313,6 +316,8 @@ export type SearchTrace = {
   created_at: string;
   mode: string;
   user_query: string;
+  workspace_scope: string[];
+  effective_scope: string[];
   query_plan: QueryPlan;
   paper_recall: RecallItem[];
   evidence_packs: Record<string, Record<string, EvidenceChunk[]>>;
@@ -346,6 +351,9 @@ export type ProjectSearchThread = {
   updated_at: string;
   result_counts: Record<string, number>;
   paper_ids: string[];
+  workspace_scope: string[];
+  query_scope: ScopeConstraints;
+  effective_scope: string[];
 };
 
 export type ProjectPaperSession = {
@@ -364,6 +372,7 @@ export type ProjectSummary = {
   title: string;
   created_at: string;
   updated_at: string;
+  selected_corpora: string[];
   search_thread_count: number;
   paper_session_count: number;
 };
@@ -381,4 +390,20 @@ export type ProjectDetailResponse = {
 export type ProjectMutationResponse = {
   project_id: string;
   status: 'cleared' | 'deleted';
+};
+
+export type CorpusCatalogEntry = {
+  corpus_key: string;
+  venue: string;
+  year: number;
+  track: string;
+  papers: number;
+  chunks: number;
+  deep_chat_evidence_units: number;
+};
+
+export type CorpusCatalogResponse = {
+  build_id?: string | null;
+  built_at?: string | null;
+  corpora: CorpusCatalogEntry[];
 };

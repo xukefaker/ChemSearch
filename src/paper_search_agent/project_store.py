@@ -9,6 +9,7 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from .config import Settings
+from .corpus_catalog import default_selected_corpora
 from .models import ProjectPaperSessionRecord, ProjectRecord, ProjectSearchThreadRecord
 from .utils import now_iso
 
@@ -25,7 +26,7 @@ class ProjectStore:
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
     def list_projects(self) -> list[ProjectRecord]:
-        projects = [self._read_model(path, ProjectRecord) for path in self.root_dir.glob("*/project.json")]
+        projects = [self._load_project(path) for path in self.root_dir.glob("*/project.json")]
         projects = [project for project in projects if project is not None]
         return sorted(projects, key=lambda item: (item.updated_at, item.created_at, item.project_id), reverse=True)
 
@@ -44,17 +45,28 @@ class ProjectStore:
             title=normalized_title,
         )
 
-    def rename_project(self, project_id: str, title: str) -> ProjectRecord:
-        normalized_title = title.strip()
-        if not normalized_title:
-            raise ValueError("Project title cannot be empty.")
+    def update_project(
+        self,
+        project_id: str,
+        *,
+        title: str | None = None,
+        selected_corpora: list[str] | None | object = None,
+    ) -> ProjectRecord:
         project = self.require_project(project_id)
-        updated = project.model_copy(update={"title": normalized_title, "updated_at": now_iso()})
+        updates: dict[str, object] = {"updated_at": now_iso()}
+        if title is not None:
+            normalized_title = title.strip()
+            if not normalized_title:
+                raise ValueError("Project title cannot be empty.")
+            updates["title"] = normalized_title
+        if selected_corpora is not None:
+            updates["selected_corpora"] = [item.strip() for item in selected_corpora if item.strip()]
+        updated = project.model_copy(update=updates)
         self._write_model(self._project_dir(project_id) / "project.json", updated)
         return updated
 
     def get_project(self, project_id: str) -> ProjectRecord | None:
-        return self._read_model(self._project_dir(project_id) / "project.json", ProjectRecord)
+        return self._load_project(self._project_dir(project_id) / "project.json")
 
     def require_project(self, project_id: str) -> ProjectRecord:
         project = self.get_project(project_id)
@@ -143,11 +155,21 @@ class ProjectStore:
             title=title,
             created_at=timestamp,
             updated_at=timestamp,
+            selected_corpora=default_selected_corpora(self.settings),
         )
         project_dir = self._project_dir(project_id)
         (project_dir / "search_threads").mkdir(parents=True, exist_ok=True)
         (project_dir / "paper_sessions").mkdir(parents=True, exist_ok=True)
         self._write_model(project_dir / "project.json", project)
+        return project
+
+    def _load_project(self, path: Path) -> ProjectRecord | None:
+        project = self._read_model(path, ProjectRecord)
+        if project is None:
+            return None
+        if project.selected_corpora is None:
+            project = project.model_copy(update={"selected_corpora": default_selected_corpora(self.settings)})
+            self._write_model(path, project)
         return project
 
     def _touch_project(self, project_id: str, updated_at: str) -> None:

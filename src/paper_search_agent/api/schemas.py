@@ -33,6 +33,7 @@ class HealthResponse(BaseModel):
 
 
 class CreateSearchJobRequest(BaseModel):
+    project_id: str
     query: str
     top_k: int = 10
     display_k: int = 10
@@ -72,6 +73,9 @@ class SearchJobResultResponse(BaseModel):
     query: str
     trace_id: str
     mode: str
+    workspace_scope: list[str] = Field(default_factory=list)
+    query_scope: dict[str, Any] = Field(default_factory=dict)
+    effective_scope: list[str] = Field(default_factory=list)
     counts: SearchResultCounts
     display_results: list[PaperResult] = Field(default_factory=list)
     satisfied: list[PaperResult] = Field(default_factory=list)
@@ -137,7 +141,8 @@ class CreateProjectRequest(BaseModel):
 
 
 class UpdateProjectRequest(BaseModel):
-    title: str
+    title: str | None = None
+    selected_corpora: list[str] | None = None
 
 
 class ProjectSummaryResponse(BaseModel):
@@ -145,6 +150,7 @@ class ProjectSummaryResponse(BaseModel):
     title: str
     created_at: str
     updated_at: str
+    selected_corpora: list[str] = Field(default_factory=list)
     search_thread_count: int = 0
     paper_session_count: int = 0
 
@@ -169,6 +175,25 @@ class UpsertProjectThreadRequest(BaseModel):
     trace_id: str | None = None
     result_counts: dict[str, int] = Field(default_factory=dict)
     paper_ids: list[str] = Field(default_factory=list)
+    workspace_scope: list[str] = Field(default_factory=list)
+    query_scope: dict[str, Any] = Field(default_factory=dict)
+    effective_scope: list[str] = Field(default_factory=list)
+
+
+class CorpusCatalogEntryResponse(BaseModel):
+    corpus_key: str
+    venue: str
+    year: int
+    track: str
+    papers: int = 0
+    chunks: int = 0
+    deep_chat_evidence_units: int = 0
+
+
+class CorpusCatalogResponse(BaseModel):
+    build_id: str | None = None
+    built_at: str | None = None
+    corpora: list[CorpusCatalogEntryResponse] = Field(default_factory=list)
 
 
 class UpsertProjectPaperSessionRequest(BaseModel):
@@ -181,6 +206,8 @@ class UpsertProjectPaperSessionRequest(BaseModel):
 __all__ = [
     "CreateProjectRequest",
     "CreateSearchJobRequest",
+    "CorpusCatalogEntryResponse",
+    "CorpusCatalogResponse",
     "HealthJobSummary",
     "HealthResponse",
     "PaperChatCitation",

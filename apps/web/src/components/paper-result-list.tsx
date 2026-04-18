@@ -1,6 +1,6 @@
 import { PaperResultCard } from '@/components/paper-result-card';
+import { useSequencedReveal } from '@/lib/animation/use-sequenced-reveal';
 import type { PaperResult } from '@/lib/types';
-import { motion, AnimatePresence } from 'framer-motion';
 
 type PaperResultListProps = {
   papers: PaperResult[];
@@ -8,49 +8,31 @@ type PaperResultListProps = {
   onOpenPaper: (paper: PaperResult) => void;
 };
 
-const container = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1, // 卡片依次延迟弹出
-    }
-  }
-};
-
 export function PaperResultList({
   papers,
   emptyMessage,
   onOpenPaper,
 }: PaperResultListProps) {
+  const scope = useSequencedReveal([papers.map((paper) => paper.paper_id).join('|')]);
+
   if (papers.length === 0) {
     return (
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className='rounded-[1.4rem] border border-dashed border-black/10 bg-white/70 px-5 py-6 text-sm text-slate-500'
-      >
+      <div className='psa-fade-up-enter rounded-[1.4rem] border border-dashed border-black/10 bg-white/70 px-5 py-6 text-sm text-slate-500'>
         {emptyMessage}
-      </motion.div>
+      </div>
     );
   }
 
   return (
-    <motion.div 
-      variants={container}
-      initial='hidden'
-      animate='show'
-      className='grid grid-cols-1 gap-6' // 如果你想做成两列，可以改为 md:grid-cols-2
-    >
-      <AnimatePresence>
-        {papers.map((paper) => (
+    <div ref={scope} className='grid grid-cols-1 gap-6'>
+      {papers.map((paper) => (
+        <div key={paper.paper_id} data-reveal-item>
           <PaperResultCard
-            key={paper.paper_id}
             paper={paper}
             onOpenPaper={onOpenPaper}
           />
-        ))}
-      </AnimatePresence>
-    </motion.div>
+        </div>
+      ))}
+    </div>
   );
 }
