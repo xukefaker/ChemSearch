@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 from .config import Settings
 
+DEFAULT_DEMO_CORPUS = "chemqa40/2026/all"
+
 
 @dataclass(slots=True)
 class CorpusCatalogEntry:
@@ -68,4 +70,7 @@ def load_search_current_catalog(settings: Settings) -> CorpusCatalog:
 
 
 def default_selected_corpora(settings: Settings) -> list[str]:
-    return load_search_current_catalog(settings).corpus_keys
+    catalog = load_search_current_catalog(settings)
+    if DEFAULT_DEMO_CORPUS in catalog.corpus_keys:
+        return [DEFAULT_DEMO_CORPUS]
+    return catalog.corpus_keys

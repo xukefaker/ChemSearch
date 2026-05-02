@@ -26,6 +26,13 @@ type ChatMessage = {
   citations?: PaperChatCitation[];
 };
 
+function formatPaperCorpusLabel(paper: Pick<PaperResult, 'venue' | 'year' | 'track'>): string {
+  if (paper.venue.toLowerCase() === 'chemqa500_simple') {
+    return 'ChemPaperSearch';
+  }
+  return `${paper.venue.toUpperCase()} ${paper.year}${paper.track ? ` · ${paper.track}` : ''}`;
+}
+
 export function PaperDetailDrawer({ paper, open, onClose, onOpenTrace }: PaperDetailDrawerProps) {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -87,7 +94,7 @@ export function PaperDetailDrawer({ paper, open, onClose, onOpenTrace }: PaperDe
     <OverlayPanel
       open={open}
       title={paper.title}
-      description={`${paper.venue.toUpperCase()} ${paper.year} · ${paper.paper_id}`}
+      description={`${formatPaperCorpusLabel(paper)} · ${paper.paper_id}`}
       onClose={onClose}
     >
       <div className="flex flex-col h-full min-h-[600px]">

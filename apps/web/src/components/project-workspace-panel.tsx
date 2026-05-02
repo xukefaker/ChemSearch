@@ -29,12 +29,41 @@ type ProjectWorkspacePanelProps = {
 
 type ScopeCheckboxState = 'all' | 'some' | 'none';
 
+function friendlyCorpusLabel(corpusKey: string): string | null {
+  if (corpusKey === 'chemqa500_simple/2026/all') {
+    return 'ChemPaperSearch';
+  }
+  return null;
+}
+
 function formatCorpusLabel(corpusKey: string): string {
+  const friendlyLabel = friendlyCorpusLabel(corpusKey);
+  if (friendlyLabel) {
+    return friendlyLabel;
+  }
   const [venue, year, track] = corpusKey.split('/');
   if (!venue || !year || !track) {
     return corpusKey;
   }
   return `${venue.toUpperCase()} ${year} ${track}`;
+}
+
+function formatCorpusGroupLabel(corpusKeys: string[], fallback: string): string {
+  const friendlyLabels = corpusKeys.map((corpusKey) => friendlyCorpusLabel(corpusKey));
+  if (friendlyLabels.every(Boolean)) {
+    const uniqueLabels = new Set(friendlyLabels);
+    if (uniqueLabels.size === 1) {
+      return friendlyLabels[0]!;
+    }
+  }
+  return fallback;
+}
+
+function formatCorpusCountLabel(corpusKeys: string[]): string {
+  if (corpusKeys.every((corpusKey) => friendlyCorpusLabel(corpusKey))) {
+    return 'Search corpus';
+  }
+  return `${corpusKeys.length} corpora`;
 }
 
 function summarizeScope(selectedCorpora: string[], catalogKeys: Set<string>): string {
@@ -467,9 +496,11 @@ export function ProjectWorkspacePanel({
                                 onChange={(checked) => toggleGroup(venueCorpusKeys, checked)}
                               />
                               <div>
-                                <div className="text-[0.78rem] font-bold uppercase tracking-[0.18em] text-slate-800">{venueGroup.venue}</div>
+                                <div className="text-[0.78rem] font-bold uppercase tracking-[0.18em] text-slate-800">
+                                  {formatCorpusGroupLabel(venueCorpusKeys, venueGroup.venue)}
+                                </div>
                                 <div className="text-[0.64rem] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                                  {venueCorpusKeys.length} corpora
+                                  {formatCorpusCountLabel(venueCorpusKeys)}
                                 </div>
                               </div>
                             </div>
@@ -487,7 +518,9 @@ export function ProjectWorkspacePanel({
                                         disabled={selectorDisabled}
                                         onChange={(checked) => toggleGroup(yearCorpusKeys, checked)}
                                       />
-                                      <div className="text-[0.8rem] font-semibold text-slate-800">{yearGroup.year}</div>
+                                      <div className="text-[0.8rem] font-semibold text-slate-800">
+                                        {formatCorpusGroupLabel(yearCorpusKeys, String(yearGroup.year))}
+                                      </div>
                                     </div>
                                     <div className="text-[0.64rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
                                       {yearGroup.entries.reduce((sum, entry) => sum + entry.papers, 0)} papers
@@ -508,7 +541,7 @@ export function ProjectWorkspacePanel({
                                           />
                                           <div>
                                             <div className="text-[0.76rem] font-semibold uppercase tracking-[0.18em] text-slate-700">
-                                              {entry.track}
+                                              {formatCorpusLabel(entry.corpus_key)}
                                             </div>
                                           </div>
                                         </div>

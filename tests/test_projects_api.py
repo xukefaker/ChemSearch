@@ -42,7 +42,20 @@ def _write_search_current_snapshot(root_dir: Path, *, build_id: str, papers: int
         json.dumps(
             {
                 "build_id": build_id,
-                "corpora": [],
+                "corpora": [
+                    {
+                        "corpus": "acl/2024/long",
+                        "papers": papers,
+                        "chunks": papers * 10,
+                        "deep_chat_evidence_units": papers * 20,
+                    },
+                    {
+                        "corpus": "chemqa40/2026/all",
+                        "papers": 40,
+                        "chunks": 1056,
+                        "deep_chat_evidence_units": 3204,
+                    },
+                ],
                 "counts": {"papers": papers, "chunks": papers * 10},
             },
             ensure_ascii=False,
@@ -84,6 +97,7 @@ def test_projects_api_crud_and_clear(tmp_path: Path, monkeypatch) -> None:
         assert created.status_code == 200
         project = created.json()
         assert project["project_id"].startswith("gaia-survey")
+        assert project["selected_corpora"] == ["chemqa40/2026/all"]
 
         thread_upsert = client.put(
             f"/api/projects/{project['project_id']}/threads/search-1",

@@ -8,6 +8,7 @@ BACKEND_LOG="$LOG_DIR/demo_backend_runtime.log"
 FRONTEND_LOG="$LOG_DIR/demo_frontend_runtime.log"
 BACKEND_PORT="${PAPER_SEARCH_AGENT_BACKEND_PORT:-4001}"
 FRONTEND_PORT="${PAPER_SEARCH_AGENT_FRONTEND_PORT:-4000}"
+BACKEND_START_TIMEOUT="${PAPER_SEARCH_AGENT_BACKEND_START_TIMEOUT:-90}"
 NODE_BIN_DIR="${PAPER_SEARCH_AGENT_NODE_BIN_DIR:-/workspace/tools/node-v20.19.0-linux-x64/bin}"
 CACHE_ROOT="${PAPER_SEARCH_AGENT_CACHE_ROOT:-/workspace/caches}"
 PUBLIC_HOST="${PAPER_SEARCH_AGENT_PUBLIC_HOST:-171.231.22.80}"
@@ -227,7 +228,7 @@ start_demo() {
     backend_started_now=1
   fi
 
-  if ! wait_for_http http://127.0.0.1:${BACKEND_PORT}/openapi.json 20; then
+  if ! wait_for_http http://127.0.0.1:${BACKEND_PORT}/openapi.json "${BACKEND_START_TIMEOUT}"; then
     echo "错误: 后端启动失败，请查看日志: $BACKEND_LOG"
     tail -n 40 "$BACKEND_LOG" || true
     stop_backend_by_pid "${BACKEND_PID:-}"

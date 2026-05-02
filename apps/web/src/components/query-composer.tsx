@@ -1,12 +1,11 @@
 "use client";
 
-import type { DemoQuery } from "@/lib/demo-queries";
-import { QueryPresets } from "@/components/query-presets";
+import { QueryPresets, type QueryPreset } from "@/components/query-presets";
 
 type QueryComposerProps = {
   value: string;
   isSubmitting: boolean;
-  presets: DemoQuery[];
+  presets: QueryPreset[];
   variant?: "centered" | "docked";
   showPresets?: boolean;
   onChange: (value: string) => void;

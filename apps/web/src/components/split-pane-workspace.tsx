@@ -56,6 +56,13 @@ type SplitPaneWorkspaceProps = {
   onOpenGlobalSearch: () => void;
 };
 
+function formatPaperCorpusLabel(paper: Pick<PaperResult, 'venue' | 'year' | 'track'>): string {
+  if (paper.venue.toLowerCase() === 'chemqa500_simple') {
+    return 'ChemPaperSearch';
+  }
+  return `${paper.venue.toUpperCase()} ${paper.year}${paper.track ? ` · ${paper.track}` : ''}`;
+}
+
 type ManuscriptPaneProps = {
   viewer: PaperViewerResponse | null;
   isLoading: boolean;
@@ -1354,8 +1361,8 @@ export function SplitPaneWorkspace({
               Save to Zotero
             </a>
           </div>
-          <div className="text-[0.66rem] font-bold uppercase tracking-[0.26em] text-indigo-400">
-            {paper.venue.toUpperCase()} {paper.year}
+          <div className="text-[0.66rem] font-bold tracking-[0.14em] text-indigo-400">
+            {formatPaperCorpusLabel(paper)}
           </div>
         </div>
       ) : null}

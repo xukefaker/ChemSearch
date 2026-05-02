@@ -17,11 +17,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "data_dir": "data",
     },
     "deep_chat": {
-        "history_turn_limit": 8,
-        "global_evidence_k": 2,
-        "local_evidence_k": 5,
-        "retrieval_candidate_k": 16,
-        "max_evidence_text_chars": 1800,
+        "history_turn_limit": 3,
+        "global_evidence_k": 1,
+        "local_evidence_k": 3,
+        "retrieval_candidate_k": 10,
+        "max_evidence_text_chars": 1200,
     },
     "pdf_parser": {
         "backend": "mineru_layout",
@@ -50,6 +50,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "retrieval": {
         "candidate_pool_size": 50,
+        "verifier_candidate_limit": 20,
         "candidate_source_limit": 120,
         "default_top_k": 10,
         "paper_sparse_rrf_weight": 0.28,
@@ -65,6 +66,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "evidence_dense_weight": 0.40,
         "evidence_reranker_weight": 0.25,
         "evidence_reranker_candidate_chunks": 8,
+        "verifier_max_workers": 12,
         "evidence_chunk_text_limit": 1200,
     },
     "reranker": {
@@ -172,6 +174,7 @@ class Settings:
     chunk_target_tokens: int
     chunk_overlap_tokens: int
     candidate_pool_size: int
+    verifier_candidate_limit: int
     candidate_source_limit: int
     default_top_k: int
     paper_sparse_rrf_weight: float
@@ -187,6 +190,7 @@ class Settings:
     evidence_dense_weight: float
     evidence_reranker_weight: float
     evidence_reranker_candidate_chunks: int
+    verifier_max_workers: int
     evidence_chunk_text_limit: int
     reranker_model: str
     reranker_device: str | None
@@ -461,6 +465,13 @@ class Settings:
                     path=("retrieval", "candidate_pool_size"),
                 )
             ),
+            verifier_candidate_limit=_as_int(
+                _env_or_config(
+                    env_name="PAPER_SEARCH_AGENT_VERIFIER_CANDIDATE_LIMIT",
+                    payload=config_payload,
+                    path=("retrieval", "verifier_candidate_limit"),
+                )
+            ),
             candidate_source_limit=_as_int(
                 _env_or_config(
                     env_name="PAPER_SEARCH_AGENT_CANDIDATE_SOURCE_LIMIT",
@@ -564,6 +575,13 @@ class Settings:
                     env_name="PAPER_SEARCH_AGENT_EVIDENCE_RERANKER_CANDIDATE_CHUNKS",
                     payload=config_payload,
                     path=("retrieval", "evidence_reranker_candidate_chunks"),
+                )
+            ),
+            verifier_max_workers=_as_int(
+                _env_or_config(
+                    env_name="PAPER_SEARCH_AGENT_VERIFIER_MAX_WORKERS",
+                    payload=config_payload,
+                    path=("retrieval", "verifier_max_workers"),
                 )
             ),
             evidence_chunk_text_limit=_as_int(

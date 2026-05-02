@@ -94,6 +94,20 @@ class SearchProgressUpdate:
     total_items: int | None = None
 
 
+@dataclass(slots=True)
+class _BucketSelectionState:
+    paper_id: str
+    bucket: EvidenceBucket
+    chunk_rows: list[dict]
+    preselected_rows: list[int]
+    best_sparse: np.ndarray
+    best_dense: np.ndarray
+    best_query: list[str]
+    reranker_query: str
+    reranker_offset: int
+    reranker_count: int
+
+
 class SearchEngine:
     def __init__(self, settings: Settings, store: LocalStore | None = None) -> None:
         self.settings = settings
@@ -345,15 +359,31 @@ class SearchEngine:
         self._emit_progress(
             progress_callback,
             "final_verifier",
-            "Running the final verifier over candidate papers.",
+            "Selecting the top candidate papers for final verification.",
+            stage_progress=0.0,
+        )
+        shortlist_start = perf_counter()
+        verifier_candidate_pool, shortlist_summary = self._shortlist_for_verifier(
+            query_plan=query_plan,
+            candidate_pool=candidate_pool,
+            coarse_scores=coarse_scores,
+            narrowed_sections=narrowed_sections,
+            evidence_packs=evidence_packs,
+        )
+        timings["pre_verifier_shortlist"] = (perf_counter() - shortlist_start) * 1000
+        self._emit_progress(
+            progress_callback,
+            "final_verifier",
+            f"Shortlisted {len(verifier_candidate_pool)} papers for final verification.",
+            stage_progress=0.1,
             completed_items=0,
-            total_items=len(candidate_pool),
+            total_items=len(verifier_candidate_pool),
         )
         verifier_start = perf_counter()
         grouped_results, verifier_usage = self._verify_candidates(
             runtime=runtime,
             query_plan=query_plan,
-            candidate_pool=candidate_pool,
+            candidate_pool=verifier_candidate_pool,
             coarse_scores=coarse_scores,
             evidence_packs=evidence_packs,
             narrowed_sections=narrowed_sections,
@@ -364,10 +394,10 @@ class SearchEngine:
         self._emit_progress(
             progress_callback,
             "final_verifier",
-            f"Final verifier completed for {len(candidate_pool)} candidate papers.",
+            f"Final verifier completed for {len(verifier_candidate_pool)} shortlisted papers.",
             stage_progress=1.0,
-            completed_items=len(candidate_pool),
-            total_items=len(candidate_pool),
+            completed_items=len(verifier_candidate_pool),
+            total_items=len(verifier_candidate_pool),
         )
         timings["total"] = (perf_counter() - overall_start) * 1000
 
@@ -391,9 +421,12 @@ class SearchEngine:
             filter_summary={
                 **filter_summary,
                 "section_narrowing": section_summary,
+                "verifier_shortlist": shortlist_summary,
             },
             verifier_summary={
                 "candidate_pool_count": len(candidate_pool),
+                "verifier_candidate_limit": self.settings.verifier_candidate_limit,
+                "verifier_shortlist_count": len(verifier_candidate_pool),
                 "satisfied_count": len(grouped_results["satisfied"]),
                 "partial_count": len(grouped_results["partial"]),
                 "rejected_count": len(grouped_results["rejected"]),
@@ -625,36 +658,65 @@ class SearchEngine:
         query_cache = self._build_query_cache(runtime.chunk_bm25, runtime.chunk_encoder, runtime.chunk_vectors, runtime.chunk_ids, unique_queries)
 
         evidence_packs: dict[str, dict[str, list[EvidenceChunk]]] = {}
+        selection_states: dict[tuple[str, str], _BucketSelectionState | None] = {}
+        reranker_pairs: list[tuple[str, str]] = []
         total_candidates = len(candidate_pool)
-        for processed_count, (paper_id, _) in enumerate(candidate_pool, start=1):
+        for paper_id, _ in candidate_pool:
             section_rows = narrowed_sections.get(paper_id, [])
             selected_section_ids = {row["section_id"] for row in section_rows}
             chunk_rows = []
             for section_id in selected_section_ids:
                 chunk_rows.extend(runtime.chunks_by_section.get(section_id, []))
-            bucket_chunks: dict[str, list[EvidenceChunk]] = {}
             if not chunk_rows:
                 for bucket in query_plan.evidence_buckets:
-                    bucket_chunks[bucket.bucket_id] = []
-                evidence_packs[paper_id] = bucket_chunks
-                self._emit_progress(
-                    progress_callback,
-                    "evidence_assembly",
-                    f"Assembled evidence for {processed_count}/{total_candidates} candidate papers.",
-                    completed_items=processed_count,
-                    total_items=total_candidates,
-                )
+                    selection_states[(paper_id, bucket.bucket_id)] = None
                 continue
 
             chunk_indices = np.array([row["index"] for row in chunk_rows], dtype=int)
             for bucket in query_plan.evidence_buckets:
-                bucket_chunks[bucket.bucket_id] = self._select_bucket_chunks(
+                selection_state = self._prepare_bucket_chunk_selection(
                     runtime=runtime,
                     bucket=bucket,
                     paper_id=paper_id,
                     chunk_rows=chunk_rows,
                     chunk_indices=chunk_indices,
                     query_cache=query_cache,
+                )
+                selection_states[(paper_id, bucket.bucket_id)] = selection_state
+                if selection_state is None:
+                    continue
+                selection_state.reranker_offset = len(reranker_pairs)
+                selection_state.reranker_count = len(selection_state.preselected_rows)
+                reranker_pairs.extend(
+                    (
+                        selection_state.reranker_query,
+                        f"{selection_state.chunk_rows[row_index]['heading']} {selection_state.chunk_rows[row_index]['text']}",
+                    )
+                    for row_index in selection_state.preselected_rows
+                )
+
+        reranker_scores = np.zeros(0, dtype=np.float32)
+        if reranker_pairs:
+            self._emit_progress(
+                progress_callback,
+                "evidence_assembly",
+                "Scoring evidence candidates across all narrowed papers.",
+                stage_progress=0.45,
+            )
+            reranker_scores = runtime.local_reranker.score_pairs(reranker_pairs)
+
+        for processed_count, (paper_id, _) in enumerate(candidate_pool, start=1):
+            bucket_chunks: dict[str, list[EvidenceChunk]] = {}
+            for bucket in query_plan.evidence_buckets:
+                selection_state = selection_states.get((paper_id, bucket.bucket_id))
+                if selection_state is None:
+                    bucket_chunks[bucket.bucket_id] = []
+                    continue
+                start = selection_state.reranker_offset
+                end = start + selection_state.reranker_count
+                bucket_chunks[bucket.bucket_id] = self._finalize_bucket_chunks(
+                    selection_state,
+                    reranker_scores[start:end],
                 )
             evidence_packs[paper_id] = bucket_chunks
             self._emit_progress(
@@ -665,6 +727,81 @@ class SearchEngine:
                 total_items=total_candidates,
             )
         return evidence_packs
+
+    def _shortlist_for_verifier(
+        self,
+        *,
+        query_plan: QueryPlan,
+        candidate_pool: list[tuple[str, float]],
+        coarse_scores: dict[str, float],
+        narrowed_sections: dict[str, list[dict]],
+        evidence_packs: dict[str, dict[str, list[EvidenceChunk]]],
+    ) -> tuple[list[tuple[str, float]], list[dict[str, object]]]:
+        if not candidate_pool:
+            return [], []
+
+        ordered_ids = [paper_id for paper_id, _ in candidate_pool]
+        coarse_values = np.array([float(coarse_scores.get(paper_id, 0.0)) for paper_id in ordered_ids], dtype=float)
+
+        section_values: list[float] = []
+        evidence_values: list[float] = []
+        total_buckets = max(1, len(query_plan.evidence_buckets))
+
+        for paper_id in ordered_ids:
+            section_scores = [float(row.get("score", 0.0)) for row in narrowed_sections.get(paper_id, [])]
+            section_values.append(_aggregate_top_local_scores(section_scores))
+
+            bucket_best_scores: list[float] = []
+            nonempty_bucket_count = 0
+            for bucket in query_plan.evidence_buckets:
+                chunks = evidence_packs.get(paper_id, {}).get(bucket.bucket_id, [])
+                if not chunks:
+                    continue
+                nonempty_bucket_count += 1
+                bucket_best_scores.append(max(float(chunk.score) for chunk in chunks))
+
+            evidence_strength = _aggregate_top_local_scores(bucket_best_scores)
+            evidence_coverage = nonempty_bucket_count / total_buckets
+            evidence_values.append(0.7 * evidence_strength + 0.3 * evidence_coverage)
+
+        coarse_norm = _normalize_scores(coarse_values)
+        section_norm = _normalize_scores(np.array(section_values, dtype=float))
+        evidence_norm = _normalize_scores(np.array(evidence_values, dtype=float))
+
+        scored_rows: list[dict[str, object]] = []
+        for index, paper_id in enumerate(ordered_ids):
+            pre_verifier_score = (
+                0.35 * float(coarse_norm[index])
+                + 0.25 * float(section_norm[index])
+                + 0.40 * float(evidence_norm[index])
+            )
+            scored_rows.append(
+                {
+                    "paper_id": paper_id,
+                    "coarse_score": float(coarse_values[index]),
+                    "section_score": float(section_values[index]),
+                    "evidence_score": float(evidence_values[index]),
+                    "pre_verifier_score": float(pre_verifier_score),
+                }
+            )
+
+        scored_rows.sort(key=lambda row: (-float(row["pre_verifier_score"]), row["paper_id"]))
+        shortlist_limit = min(self.settings.verifier_candidate_limit, len(scored_rows))
+        shortlist_ids = {row["paper_id"] for row in scored_rows[:shortlist_limit]}
+
+        shortlisted_pool = [
+            (paper_id, coarse_score)
+            for paper_id, coarse_score in candidate_pool
+            if paper_id in shortlist_ids
+        ]
+        shortlist_summary = [
+            {
+                **row,
+                "shortlisted": row["paper_id"] in shortlist_ids,
+            }
+            for row in scored_rows
+        ]
+        return shortlisted_pool, shortlist_summary
 
     def _verify_candidates(
         self,
@@ -683,81 +820,83 @@ class SearchEngine:
 
         usage = TokenUsage()
         grouped_results: dict[str, list[PaperResult]] = {"satisfied": [], "partial": [], "rejected": []}
-        max_workers = min(4, max(1, len(candidate_pool)))
         total_candidates = len(candidate_pool)
-        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="paper-verifier") as executor:
-            future_map = {
-                executor.submit(
-                    self._verify_with_openai,
-                    query_plan,
-                    runtime.paper_lookup[paper_id],
-                    evidence_packs.get(paper_id, {}),
-                ): (paper_id, coarse_score)
-                for paper_id, coarse_score in candidate_pool
-            }
-            for completed_count, future in enumerate(as_completed(future_map), start=1):
-                paper_id, coarse_score = future_map[future]
-                paper = runtime.paper_lookup[paper_id]
-                evidence_pack = evidence_packs.get(paper_id, {})
-                verifier_payload, one_usage = future.result()
-                usage.prompt_tokens += one_usage.prompt_tokens
-                usage.completion_tokens += one_usage.completion_tokens
-                usage.total_tokens += one_usage.total_tokens
-                usage.cost_estimate_usd = _sum_costs(usage.cost_estimate_usd, one_usage.cost_estimate_usd)
+        max_workers = min(max(1, self.settings.verifier_max_workers), max(1, len(candidate_pool)))
+        client_limits = httpx.Limits(max_connections=max_workers, max_keepalive_connections=max_workers)
+        with httpx.Client(timeout=self.settings.request_timeout, limits=client_limits) as client:
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="paper-verifier") as executor:
+                future_map = {
+                    executor.submit(
+                        self._verify_with_openai,
+                        query_plan,
+                        runtime.paper_lookup[paper_id],
+                        evidence_packs.get(paper_id, {}),
+                        client,
+                    ): (paper_id, coarse_score)
+                    for paper_id, coarse_score in candidate_pool
+                }
+                for completed_count, future in enumerate(as_completed(future_map), start=1):
+                    paper_id, coarse_score = future_map[future]
+                    paper = runtime.paper_lookup[paper_id]
+                    evidence_pack = evidence_packs.get(paper_id, {})
+                    verifier_payload, one_usage = future.result()
+                    usage.prompt_tokens += one_usage.prompt_tokens
+                    usage.completion_tokens += one_usage.completion_tokens
+                    usage.total_tokens += one_usage.total_tokens
+                    usage.cost_estimate_usd = _sum_costs(usage.cost_estimate_usd, one_usage.cost_estimate_usd)
 
-                verdict = str(verifier_payload["verdict"]).strip().lower()
-                if verdict not in grouped_results:
-                    raise RuntimeError(f"Verifier returned unsupported verdict: {verdict}")
-                confidence = float(verifier_payload["confidence"])
-                verifier_score = max(0.0, min(confidence, 1.0))
-                final_score = verifier_score + 0.05 * float(coarse_score)
-                main_image_url = select_main_image_url(
-                    self.settings,
-                    paper.paper_id,
-                    runtime.objects_by_paper.get(paper.paper_id, []),
-                )
-                structured_summary, enriched_metadata = load_cached_paper_enrichment(self.settings, paper.paper_id)
-                paper_objects = runtime.objects_by_paper.get(paper.paper_id, [])
-                authors, affiliations, authors_structured = load_cached_paper_authorship(self.settings, paper)
-                rationale = str(verifier_payload["rationale"])
-                matched_sections = [row["section_title"] for row in narrowed_sections.get(paper_id, [])]
-
-                grouped_results[verdict].append(
-                    PaperResult(
-                        paper_id=paper.paper_id,
-                        title=paper.title,
-                        score=float(final_score),
-                        coarse_score=float(coarse_score),
-                        verifier_score=float(verifier_score),
-                        venue=paper.venue,
-                        year=paper.year,
-                        track=paper.track,
-                        verdict=verdict,
-                        entity_role=verifier_payload.get("entity_role"),
-                        satisfied_constraints=[str(item) for item in verifier_payload.get("satisfied_constraints", [])],
-                        missing_constraints=[str(item) for item in verifier_payload.get("missing_constraints", [])],
-                        confidence=float(verifier_score),
-                        rationale=rationale,
-                        rationale_structured=structure_rationale_text(rationale),
-                        matched_sections=matched_sections,
-                        matched_sections_summary=build_matched_sections_summary(narrowed_sections.get(paper_id, [])),
-                        evidence_chunks=evidence_pack,
-                        main_image_url=main_image_url,
-                        abstract=paper.abstract or None,
-                        authors=authors,
-                        affiliations=affiliations,
-                        authors_structured=authors_structured,
-                        structured_summary=structured_summary,
-                        enriched_metadata=enriched_metadata,
+                    verdict = str(verifier_payload["verdict"]).strip().lower()
+                    if verdict not in grouped_results:
+                        raise RuntimeError(f"Verifier returned unsupported verdict: {verdict}")
+                    confidence = float(verifier_payload["confidence"])
+                    verifier_score = max(0.0, min(confidence, 1.0))
+                    final_score = verifier_score + 0.05 * float(coarse_score)
+                    main_image_url = select_main_image_url(
+                        self.settings,
+                        paper.paper_id,
+                        runtime.objects_by_paper.get(paper.paper_id, []),
                     )
-                )
-                self._emit_progress(
-                    progress_callback,
-                    "final_verifier",
-                    f"Verified {completed_count}/{total_candidates} candidate papers.",
-                    completed_items=completed_count,
-                    total_items=total_candidates,
-                )
+                    structured_summary, enriched_metadata = load_cached_paper_enrichment(self.settings, paper.paper_id)
+                    authors, affiliations, authors_structured = load_cached_paper_authorship(self.settings, paper)
+                    rationale = str(verifier_payload["rationale"])
+                    matched_sections = [row["section_title"] for row in narrowed_sections.get(paper_id, [])]
+
+                    grouped_results[verdict].append(
+                        PaperResult(
+                            paper_id=paper.paper_id,
+                            title=paper.title,
+                            score=float(final_score),
+                            coarse_score=float(coarse_score),
+                            verifier_score=float(verifier_score),
+                            venue=paper.venue,
+                            year=paper.year,
+                            track=paper.track,
+                            verdict=verdict,
+                            entity_role=verifier_payload.get("entity_role"),
+                            satisfied_constraints=[str(item) for item in verifier_payload.get("satisfied_constraints", [])],
+                            missing_constraints=[str(item) for item in verifier_payload.get("missing_constraints", [])],
+                            confidence=float(verifier_score),
+                            rationale=rationale,
+                            rationale_structured=structure_rationale_text(rationale),
+                            matched_sections=matched_sections,
+                            matched_sections_summary=build_matched_sections_summary(narrowed_sections.get(paper_id, [])),
+                            evidence_chunks=evidence_pack,
+                            main_image_url=main_image_url,
+                            abstract=paper.abstract or None,
+                            authors=authors,
+                            affiliations=affiliations,
+                            authors_structured=authors_structured,
+                            structured_summary=structured_summary,
+                            enriched_metadata=enriched_metadata,
+                        )
+                    )
+                    self._emit_progress(
+                        progress_callback,
+                        "final_verifier",
+                        f"Verified {completed_count}/{total_candidates} candidate papers.",
+                        completed_items=completed_count,
+                        total_items=total_candidates,
+                    )
 
         for verdict, items in grouped_results.items():
             items.sort(key=lambda item: item.score, reverse=True)
@@ -924,7 +1063,7 @@ class SearchEngine:
             cache[query] = {"sparse": sparse_scores, "dense_vector": dense_vector}
         return cache
 
-    def _select_bucket_chunks(
+    def _prepare_bucket_chunk_selection(
         self,
         runtime: _Runtime,
         bucket: EvidenceBucket,
@@ -932,9 +1071,9 @@ class SearchEngine:
         chunk_rows: list[dict],
         chunk_indices: np.ndarray,
         query_cache: dict[str, dict[str, np.ndarray]],
-    ) -> list[EvidenceChunk]:
+    ) -> _BucketSelectionState | None:
         if not chunk_rows:
-            return []
+            return None
 
         best_sparse = np.zeros(len(chunk_rows), dtype=float)
         best_dense = np.zeros(len(chunk_rows), dtype=float)
@@ -943,7 +1082,7 @@ class SearchEngine:
 
         valid_queries = [query for query in bucket.queries if query.strip() and query in query_cache]
         if not valid_queries:
-            return []
+            return None
 
         for query in valid_queries:
             cached = query_cache[query]
@@ -971,43 +1110,54 @@ class SearchEngine:
             if item[1] > 0
         ][:reranker_limit]
         if not preselected:
+            return None
+
+        return _BucketSelectionState(
+            paper_id=paper_id,
+            bucket=bucket,
+            chunk_rows=chunk_rows,
+            preselected_rows=[row_index for row_index, _ in preselected],
+            best_sparse=best_sparse,
+            best_dense=best_dense,
+            best_query=best_query,
+            reranker_query=f"{bucket.description} :: {' ; '.join(valid_queries)}",
+            reranker_offset=0,
+            reranker_count=0,
+        )
+
+    def _finalize_bucket_chunks(
+        self,
+        selection_state: _BucketSelectionState,
+        reranker_scores: np.ndarray,
+    ) -> list[EvidenceChunk]:
+        if not selection_state.preselected_rows:
             return []
 
-        reranker_query = f"{bucket.description} :: {' ; '.join(valid_queries)}"
-        reranker_pairs = [
-            (
-                reranker_query,
-                f"{chunk_rows[row_index]['heading']} {chunk_rows[row_index]['text']}",
-            )
-            for row_index, _ in preselected
-        ]
-        reranker_scores = runtime.local_reranker.score_pairs(reranker_pairs)
-        reranker_scores = _normalize_scores(np.asarray(reranker_scores, dtype=float))
-
+        normalized_reranker_scores = _normalize_scores(np.asarray(reranker_scores, dtype=float))
         selected_chunks: list[EvidenceChunk] = []
-        for (row_index, _), reranker_score in sorted(
-            zip(preselected, reranker_scores.tolist(), strict=False),
+        for row_index, reranker_score in sorted(
+            zip(selection_state.preselected_rows, normalized_reranker_scores.tolist(), strict=False),
             key=lambda item: (
-                self.settings.evidence_sparse_weight * best_sparse[item[0][0]]
-                + self.settings.evidence_dense_weight * best_dense[item[0][0]]
+                self.settings.evidence_sparse_weight * selection_state.best_sparse[item[0]]
+                + self.settings.evidence_dense_weight * selection_state.best_dense[item[0]]
                 + self.settings.evidence_reranker_weight * item[1]
             ),
             reverse=True,
         ):
-            row = chunk_rows[row_index]
+            row = selection_state.chunk_rows[row_index]
             final_score = (
-                self.settings.evidence_sparse_weight * best_sparse[row_index]
-                + self.settings.evidence_dense_weight * best_dense[row_index]
+                self.settings.evidence_sparse_weight * selection_state.best_sparse[row_index]
+                + self.settings.evidence_dense_weight * selection_state.best_dense[row_index]
                 + self.settings.evidence_reranker_weight * reranker_score
             )
             selected_chunks.append(
                 EvidenceChunk(
-                    paper_id=paper_id,
-                    bucket_id=bucket.bucket_id,
+                    paper_id=selection_state.paper_id,
+                    bucket_id=selection_state.bucket.bucket_id,
                     chunk_id=row["chunk_id"],
                     chunk_type=row["chunk_type"],
                     score=float(final_score),
-                    source_query=best_query[row_index],
+                    source_query=selection_state.best_query[row_index],
                     heading=row["heading"],
                     section_path=row["section_path"],
                     page_start=row["page_start"],
@@ -1015,7 +1165,7 @@ class SearchEngine:
                     text=truncate_text(row["text"], limit=self.settings.evidence_chunk_text_limit),
                 )
             )
-            if len(selected_chunks) >= bucket.target_chunks:
+            if len(selected_chunks) >= selection_state.bucket.target_chunks:
                 break
         return selected_chunks
 
@@ -1024,6 +1174,7 @@ class SearchEngine:
         query_plan: QueryPlan,
         paper: PaperRecord,
         evidence_pack: dict[str, list[EvidenceChunk]],
+        client: httpx.Client,
     ) -> tuple[dict, TokenUsage]:
         model = require_openai_model(self.settings)
 
@@ -1074,63 +1225,62 @@ class SearchEngine:
         last_content: dict | None = None
         last_error: str | None = None
 
-        with httpx.Client(timeout=self.settings.request_timeout) as client:
-            for attempt in range(2):
-                payload = {
-                    "model": model,
-                    "messages": messages,
-                    "temperature": 0.0,
-                    "response_format": {"type": "json_object"},
-                }
-                response = client.post(f"{self.settings.openai_base_url}/chat/completions", headers=headers, json=payload)
-                response.raise_for_status()
-                raw = response.json()
-                attempt_usage = _usage_from_openai_payload(self.settings, raw)
-                usage.prompt_tokens += attempt_usage.prompt_tokens
-                usage.completion_tokens += attempt_usage.completion_tokens
-                usage.total_tokens += attempt_usage.total_tokens
-                usage.cost_estimate_usd = _sum_costs(usage.cost_estimate_usd, attempt_usage.cost_estimate_usd)
+        for attempt in range(2):
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0.0,
+                "response_format": {"type": "json_object"},
+            }
+            response = client.post(f"{self.settings.openai_base_url}/chat/completions", headers=headers, json=payload)
+            response.raise_for_status()
+            raw = response.json()
+            attempt_usage = _usage_from_openai_payload(self.settings, raw)
+            usage.prompt_tokens += attempt_usage.prompt_tokens
+            usage.completion_tokens += attempt_usage.completion_tokens
+            usage.total_tokens += attempt_usage.total_tokens
+            usage.cost_estimate_usd = _sum_costs(usage.cost_estimate_usd, attempt_usage.cost_estimate_usd)
 
-                content = json.loads(raw["choices"][0]["message"]["content"])
-                last_content = content
-                verdict = str(content.get("verdict", "")).strip().lower()
-                entity_role = str(content.get("entity_role", "")).strip().lower()
-                invalid_fields = []
-                if verdict not in {"satisfied", "partial", "rejected"}:
-                    invalid_fields.append(
-                        f"verdict={content.get('verdict', '')!r} is invalid; allowed values are satisfied, partial, rejected"
-                    )
-                if entity_role not in {"dataset_or_benchmark", "method_or_system", "task_or_setting", "ambiguous_or_other"}:
-                    invalid_fields.append(
-                        "entity_role="
-                        f"{content.get('entity_role', '')!r} is invalid; allowed values are "
-                        "dataset_or_benchmark, method_or_system, task_or_setting, ambiguous_or_other"
-                    )
-                if not invalid_fields:
-                    return {
-                        "verdict": verdict,
-                        "entity_role": entity_role,
-                        "satisfied_constraints": content.get("satisfied_constraints", []),
-                        "missing_constraints": content.get("missing_constraints", []),
-                        "confidence": float(content.get("confidence", 0.0)),
-                        "rationale": str(content.get("rationale", "")).strip(),
-                    }, usage
-
-                last_error = "; ".join(invalid_fields)
-                messages.extend(
-                    [
-                        {"role": "assistant", "content": raw["choices"][0]["message"]["content"]},
-                        {
-                            "role": "user",
-                            "content": (
-                                "Your previous JSON did not satisfy the required schema. "
-                                f"Problems: {last_error}. "
-                                "Return corrected JSON only. Keep your semantic judgment the same whenever possible, "
-                                "but use only allowed enum labels."
-                            ),
-                        },
-                    ]
+            content = json.loads(raw["choices"][0]["message"]["content"])
+            last_content = content
+            verdict = str(content.get("verdict", "")).strip().lower()
+            entity_role = str(content.get("entity_role", "")).strip().lower()
+            invalid_fields = []
+            if verdict not in {"satisfied", "partial", "rejected"}:
+                invalid_fields.append(
+                    f"verdict={content.get('verdict', '')!r} is invalid; allowed values are satisfied, partial, rejected"
                 )
+            if entity_role not in {"dataset_or_benchmark", "method_or_system", "task_or_setting", "ambiguous_or_other"}:
+                invalid_fields.append(
+                    "entity_role="
+                    f"{content.get('entity_role', '')!r} is invalid; allowed values are "
+                    "dataset_or_benchmark, method_or_system, task_or_setting, ambiguous_or_other"
+                )
+            if not invalid_fields:
+                return {
+                    "verdict": verdict,
+                    "entity_role": entity_role,
+                    "satisfied_constraints": content.get("satisfied_constraints", []),
+                    "missing_constraints": content.get("missing_constraints", []),
+                    "confidence": float(content.get("confidence", 0.0)),
+                    "rationale": str(content.get("rationale", "")).strip(),
+                }, usage
+
+            last_error = "; ".join(invalid_fields)
+            messages.extend(
+                [
+                    {"role": "assistant", "content": raw["choices"][0]["message"]["content"]},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your previous JSON did not satisfy the required schema. "
+                            f"Problems: {last_error}. "
+                            "Return corrected JSON only. Keep your semantic judgment the same whenever possible, "
+                            "but use only allowed enum labels."
+                        ),
+                    },
+                ]
+            )
 
         raise RuntimeError(
             "Final verifier returned invalid structured output after repair attempt: "

@@ -128,6 +128,7 @@ class DeepChatService:
         )
         if not plan.hypotheses:
             raise RuntimeError("Deep chat planner returned no interpretation hypotheses.")
+        plan = self._limit_plan_hypotheses(plan, max_hypotheses=2)
 
         hypothesis_packs = self.retriever.retrieve_for_hypotheses(
             paper_id=paper_id,
@@ -186,16 +187,22 @@ class DeepChatService:
         final_answer = generated.answer.strip()
         uncertainty_note = generated.uncertainty_note
         if generated.decision == "answer":
+            verifier_plan, verifier_fact_batch, verifier_hypothesis_packs = self._prepare_verifier_context(
+                plan=plan,
+                fact_batch=fact_batch,
+                hypothesis_packs=hypothesis_packs,
+                generated=generated,
+            )
             verifier_payload = self._call_model(
                 system_prompt=self.verifier.build_system_prompt(),
                 user_payload=self.verifier.build_user_payload(
                     paper=paper,
                     query=normalized_query,
                     history=history_window,
-                    plan=plan,
-                    fact_batch=fact_batch,
+                    plan=verifier_plan,
+                    fact_batch=verifier_fact_batch,
                     generated=generated,
-                    hypothesis_packs=hypothesis_packs,
+                    hypothesis_packs=verifier_hypothesis_packs,
                 ),
                 response_model=VerificationResult,
             )
@@ -334,6 +341,99 @@ class DeepChatService:
             if self._http_client is None:
                 self._http_client = httpx.Client(timeout=self.settings.request_timeout)
             return self._http_client
+
+    @staticmethod
+    def _limit_plan_hypotheses(plan: InterpretationPlan, *, max_hypotheses: int) -> InterpretationPlan:
+        if len(plan.hypotheses) <= max_hypotheses:
+            return plan
+        limited = sorted(plan.hypotheses, key=lambda item: item.priority, reverse=True)[:max_hypotheses]
+        return plan.model_copy(update={"hypotheses": limited})
+
+    @staticmethod
+    def _trim_evidence_list(
+        evidence: list,
+        *,
+        keep_ids: set[str] | None = None,
+        top_k: int = 0,
+    ) -> list:
+        keep_ids = keep_ids or set()
+        ranked = sorted(evidence, key=lambda item: item.score, reverse=True)
+        selected: list = []
+        seen: set[str] = set()
+        for item in ranked:
+            if item.evidence_id in keep_ids:
+                selected.append(item)
+                seen.add(item.evidence_id)
+        if top_k > 0:
+            for item in ranked:
+                if item.evidence_id in seen:
+                    continue
+                selected.append(item)
+                seen.add(item.evidence_id)
+                if len(selected) >= len(keep_ids) + top_k:
+                    break
+        return selected
+
+    def _prepare_verifier_context(
+        self,
+        *,
+        plan: InterpretationPlan,
+        fact_batch: FactExtractionBatch,
+        hypothesis_packs: list[HypothesisEvidencePack],
+        generated: GeneratedAnswer,
+    ) -> tuple[InterpretationPlan, FactExtractionBatch, list[HypothesisEvidencePack]]:
+        if not generated.winning_hypothesis_id:
+            return plan, fact_batch, hypothesis_packs
+        pack_by_id = {item.hypothesis_id: item for item in hypothesis_packs}
+        selected_ids = [generated.winning_hypothesis_id]
+        winning_pack = pack_by_id.get(generated.winning_hypothesis_id)
+        strongest_competitor_id = (
+            winning_pack.competition_signal.strongest_competitor_id if winning_pack is not None else None
+        )
+        if strongest_competitor_id and strongest_competitor_id in pack_by_id:
+            selected_ids.append(strongest_competitor_id)
+        selected_id_set = set(selected_ids)
+        verifier_plan = plan.model_copy(
+            update={"hypotheses": [item for item in plan.hypotheses if item.hypothesis_id in selected_id_set]}
+        )
+        verifier_fact_batch = fact_batch.model_copy(
+            update={"fact_sets": [item for item in fact_batch.fact_sets if item.hypothesis_id in selected_id_set]}
+        )
+        winning_evidence_ids = set(generated.used_evidence_ids)
+        verifier_hypothesis_packs: list[HypothesisEvidencePack] = []
+        for item in hypothesis_packs:
+            if item.hypothesis_id not in selected_id_set:
+                continue
+            keep_ids = winning_evidence_ids if item.hypothesis_id == generated.winning_hypothesis_id else set()
+            verifier_hypothesis_packs.append(
+                item.model_copy(
+                    update={
+                        "evidence_pack": item.evidence_pack.model_copy(
+                            update={
+                                "global_evidence": self._trim_evidence_list(
+                                    item.evidence_pack.global_evidence,
+                                    keep_ids=keep_ids,
+                                    top_k=2,
+                                ),
+                                "local_evidence": self._trim_evidence_list(
+                                    item.evidence_pack.local_evidence,
+                                    keep_ids=keep_ids,
+                                    top_k=2,
+                                ),
+                            }
+                        ),
+                        "discriminative_evidence": self._trim_evidence_list(
+                            item.discriminative_evidence,
+                            top_k=1,
+                        ),
+                        "conflicting_evidence": self._trim_evidence_list(
+                            item.conflicting_evidence,
+                            top_k=1,
+                        ),
+                    }
+                )
+            )
+        return verifier_plan, verifier_fact_batch, verifier_hypothesis_packs
 
     @staticmethod
     def _assert_fact_batch_alignment(

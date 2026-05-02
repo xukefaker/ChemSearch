@@ -171,26 +171,26 @@ function buildProjectSessionSignature(payload: {
 }
 
 const SAMPLE_QUERIES = [
-  'Find ACL 2024 long papers that run experiments on the MATH dataset.',
-  'Find ACL 2024 long papers that introduce a new benchmark or evaluation suite.',
-  'Find ACL 2024 long papers that compare multi-agent systems against single-agent baselines.',
+  'Find papers on donor-acceptor covalent organic frameworks for coupled CO2 reduction and water oxidation.',
+  'Find papers on covalent organic framework photocatalysts for selective two-electron oxygen reduction to hydrogen peroxide.',
+  'Find papers on oxygen-vacancy-rich TiO2 for hydroperoxy-mediated selective benzene oxidation to phenol.',
 ];
 
 const QUERY_SUGGESTION_GROUPS = [
   {
-    label: 'Dataset / Benchmark',
+    label: 'Photocatalysis',
     items: [
-      'Find ACL 2024 long papers that evaluate on the GAIA benchmark.',
-      'Find ACL 2024 long papers that introduce a new benchmark or evaluation suite.',
-      'Find ACL 2024 long papers that report experiments on the MATH dataset.',
+      'Find papers on donor-acceptor covalent organic frameworks for coupled CO2 reduction and water oxidation.',
+      'Find papers on covalent organic framework photocatalysts for selective two-electron oxygen reduction to hydrogen peroxide.',
+      'Find papers on internal electric fields in MOF/COF heterojunctions for photocatalytic water splitting.',
     ],
   },
   {
-    label: 'Method / Evaluation',
+    label: 'Reaction / Materials',
     items: [
-      'Find ACL 2024 long papers that compare multi-agent systems against single-agent baselines.',
-      'Find ACL 2024 long papers that study reasoning or deliberation strategies.',
-      'Find ACL 2024 long papers that report ablations for routing or planning modules.',
+      'Find papers on atomically dispersed cobalt or transition-metal sites in photocatalysts for nitrogen fixation.',
+      'Find papers on oxygen-vacancy-rich TiO2 for hydroperoxy-mediated selective benzene oxidation to phenol.',
+      'Find papers on light-triggered depolymerization of polypinacols for closed-loop chemical recycling.',
     ],
   },
 ] as const;
@@ -541,6 +541,9 @@ function searchStatusSnapshotSignature(snapshot: Pick<ActiveSearchRun, 'status' 
 }
 
 function formatScopeChipLabel(corpusKey: string): string {
+  if (corpusKey === 'chemqa500_simple/2026/all') {
+    return 'ChemPaperSearch';
+  }
   const [venue, year, track] = corpusKey.split('/');
   if (!venue || !year || !track) {
     return corpusKey;
@@ -1868,7 +1871,7 @@ export default function ChatPage() {
               minimal={isRunningView}
             />
             <div>
-              <div className="text-[0.95rem] font-black tracking-tight text-slate-950">Scholar Agent</div>
+              <div className="text-[0.95rem] font-black tracking-tight text-slate-950">EviPAIR</div>
               <div className="text-[0.66rem] font-semibold uppercase tracking-[0.22em] text-slate-400">Neural literature interface</div>
             </div>
           </div>

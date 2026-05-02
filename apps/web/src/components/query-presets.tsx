@@ -1,7 +1,11 @@
-import type { DemoQuery } from "@/lib/demo-queries";
+export type QueryPreset = {
+  id: string;
+  label: string;
+  query: string;
+};
 
 type QueryPresetsProps = {
-  presets: DemoQuery[];
+  presets: QueryPreset[];
   activeQuery: string;
   onSelect: (query: string) => void;
 };

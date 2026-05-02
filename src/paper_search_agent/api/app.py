@@ -263,7 +263,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     service_manager = AppServiceManager(PROJECT_ROOT)
-    service_manager.get_services()
+    services = service_manager.get_services()
+    services.engine.load()
     app.state.service_manager = service_manager
     try:
         yield

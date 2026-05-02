@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ..models import PaperRecord
+from .generator import _serialize_evidence, _serialize_fact, _serialize_hypothesis
 from .models import FactExtractionBatch, GeneratedAnswer, HypothesisEvidencePack, InterpretationPlan, VerificationResult
 
 
@@ -37,8 +38,17 @@ class DeepChatVerifier:
             "query": query,
             "history": history,
             "dialogue_state": plan.dialogue_state.model_dump(mode="json"),
-            "interpretation_hypotheses": [item.model_dump(mode="json") for item in plan.hypotheses],
-            "hypothesis_fact_sets": [item.model_dump(mode="json") for item in fact_batch.fact_sets],
+            "interpretation_hypotheses": [_serialize_hypothesis(item) for item in plan.hypotheses],
+            "hypothesis_fact_sets": [
+                {
+                    "hypothesis_id": item.hypothesis_id,
+                    "normalized_question": item.normalized_question,
+                    "extraction_summary": item.extraction_summary,
+                    "facts": [_serialize_fact(fact) for fact in item.facts],
+                    "unresolved_points": list(item.unresolved_points),
+                }
+                for item in fact_batch.fact_sets
+            ],
             "generated_answer": generated.model_dump(mode="json"),
             "hypothesis_evidence_packs": [
                 {
@@ -49,10 +59,10 @@ class DeepChatVerifier:
                     "required_constraints": list(item.required_constraints),
                     "disambiguation_focus": list(item.disambiguation_focus),
                     "competition_signal": item.competition_signal.model_dump(mode="json"),
-                    "global_evidence": [evidence.model_dump(mode="json") for evidence in item.evidence_pack.global_evidence],
-                    "local_evidence": [evidence.model_dump(mode="json") for evidence in item.evidence_pack.local_evidence],
-                    "discriminative_evidence": [evidence.model_dump(mode="json") for evidence in item.discriminative_evidence],
-                    "conflicting_evidence": [evidence.model_dump(mode="json") for evidence in item.conflicting_evidence],
+                    "global_evidence": [_serialize_evidence(evidence) for evidence in item.evidence_pack.global_evidence],
+                    "local_evidence": [_serialize_evidence(evidence) for evidence in item.evidence_pack.local_evidence],
+                    "discriminative_evidence": [_serialize_evidence(evidence) for evidence in item.discriminative_evidence],
+                    "conflicting_evidence": [_serialize_evidence(evidence) for evidence in item.conflicting_evidence],
                 }
                 for item in hypothesis_packs
             ],

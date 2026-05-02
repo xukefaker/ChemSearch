@@ -9,6 +9,13 @@ type PaperResultCardProps = {
   onQuickPeek?: (paper: PaperResult) => void;
 };
 
+function formatPaperCorpusLabel(paper: Pick<PaperResult, 'venue' | 'year' | 'track'>): string {
+  if (paper.venue.toLowerCase() === 'chemqa500_simple') {
+    return 'ChemPaperSearch';
+  }
+  return `${paper.venue.toUpperCase()} ${paper.year}${paper.track ? ` · ${paper.track}` : ''}`;
+}
+
 export function PaperResultCard({ paper, onOpenPaper, onQuickPeek }: PaperResultCardProps) {
   const isSatisfied = paper.verdict.toLowerCase() === 'satisfied';
   const isPartial = paper.verdict.toLowerCase() === 'partial';
@@ -56,8 +63,8 @@ export function PaperResultCard({ paper, onOpenPaper, onQuickPeek }: PaperResult
 
       <div className='flex flex-1 flex-col p-6'>
         <div className='mb-4 flex flex-wrap gap-2'>
-          <span className='rounded-full border border-indigo-100 bg-indigo-50/80 px-3 py-1 text-[0.62rem] font-bold uppercase tracking-[0.22em] text-indigo-600'>
-            {paper.venue.toUpperCase()} {paper.year} {paper.track ? `· ${paper.track}` : ''}
+          <span className='rounded-full border border-indigo-100 bg-indigo-50/80 px-3 py-1 text-[0.62rem] font-bold tracking-[0.14em] text-indigo-600'>
+            {formatPaperCorpusLabel(paper)}
           </span>
           <span className={`rounded-full border px-3 py-1 text-[0.62rem] font-bold uppercase tracking-[0.22em] ${verdictClassName}`}>
             {paper.verdict}

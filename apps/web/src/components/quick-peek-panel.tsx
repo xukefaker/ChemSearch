@@ -12,6 +12,13 @@ type QuickPeekPanelProps = {
   onOpenPaper: (paper: PaperResult) => void;
 };
 
+function formatPaperCorpusLabel(paper: Pick<PaperResult, 'venue' | 'year' | 'track'>): string {
+  if (paper.venue.toLowerCase() === 'chemqa500_simple') {
+    return 'ChemPaperSearch';
+  }
+  return `${paper.venue.toUpperCase()} ${paper.year}${paper.track ? ` · ${paper.track}` : ''}`;
+}
+
 function previewOverview(paper: PaperResult): { heading: string; text: string } {
   const abstract = paper.abstract?.trim();
   if (abstract) {
@@ -100,8 +107,8 @@ export function QuickPeekPanel({ paper, onClose, onOpenPaper }: QuickPeekPanelPr
 
             <div className='flex flex-col px-6 py-6 sm:px-8 sm:py-8'>
               <div className='flex flex-wrap gap-2'>
-                <span className='rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[0.64rem] font-bold uppercase tracking-[0.22em] text-indigo-600'>
-                  {paper.venue.toUpperCase()} {paper.year} {paper.track ? `· ${paper.track}` : ''}
+                <span className='rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[0.64rem] font-bold tracking-[0.14em] text-indigo-600'>
+                  {formatPaperCorpusLabel(paper)}
                 </span>
                 <span className={`rounded-full border px-3 py-1 text-[0.64rem] font-bold uppercase tracking-[0.22em] ${
                   paper.verdict.toLowerCase() === 'satisfied'
