@@ -223,6 +223,7 @@ class Settings:
             user_payload = tomllib.loads(config_path.read_text(encoding="utf-8"))
             _deep_update(config_payload, user_payload)
 
+        device = _as_optional_str(os.getenv("PAPERSCOUT_DEVICE"))
         data_dir_override = os.getenv("PAPERSCOUT_DATA_DIR")
         data_dir = _resolve_dir(
             base_dir,
@@ -345,7 +346,9 @@ class Settings:
                 )
             ),
             mineru_device=_as_optional_str(
-                _env_or_config(
+                os.getenv("PAPERSCOUT_MINERU_DEVICE")
+                or device
+                or _env_or_config(
                     env_name="PAPERSCOUT_MINERU_DEVICE",
                     payload=config_payload,
                     path=("mineru", "device"),
@@ -599,7 +602,9 @@ class Settings:
                 )
             ),
             reranker_device=_as_optional_str(
-                _env_or_config(
+                os.getenv("PAPERSCOUT_RERANKER_DEVICE")
+                or device
+                or _env_or_config(
                     env_name="PAPERSCOUT_RERANKER_DEVICE",
                     payload=config_payload,
                     path=("reranker", "device"),
@@ -655,7 +660,9 @@ class Settings:
                 )
             ),
             dense_device=_as_optional_str(
-                _env_or_config(
+                os.getenv("PAPERSCOUT_DENSE_DEVICE")
+                or device
+                or _env_or_config(
                     env_name="PAPERSCOUT_DENSE_DEVICE",
                     payload=config_payload,
                     path=("indexing", "dense_device"),

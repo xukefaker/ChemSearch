@@ -33,7 +33,9 @@ uv run paperscout init
 
 # edit .env:
 # OPENAI_API_KEY=sk-...
-# OPENAI_MODEL=your-model-name
+# OPENAI_BASE_URL=https://api.openai.com/v1
+# OPENAI_MODEL=gpt-4o-mini
+# PAPERSCOUT_DEVICE=cpu  # change to cuda if your NVIDIA CUDA setup works
 
 mkdir -p pdfs
 # put your PDFs in ./pdfs

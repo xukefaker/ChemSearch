@@ -33,7 +33,9 @@ uv run paperscout init
 
 # 编辑 .env:
 # OPENAI_API_KEY=sk-...
-# OPENAI_MODEL=你的模型名
+# OPENAI_BASE_URL=https://api.openai.com/v1
+# OPENAI_MODEL=gpt-4o-mini
+# PAPERSCOUT_DEVICE=cpu  # 如果你的 NVIDIA CUDA 环境可用，可以改成 cuda
 
 mkdir -p pdfs
 # 把你的 PDF 放进 ./pdfs

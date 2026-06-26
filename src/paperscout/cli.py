@@ -187,8 +187,16 @@ def init_project(force_env: bool = typer.Option(False, "--force-env", help="Over
         typer.echo(f"Wrote {env_path}")
     else:
         env_path.write_text(
-            "OPENAI_API_KEY=\nOPENAI_BASE_URL=https://api.openai.com/v1\nOPENAI_MODEL=\n"
-            "PAPERSCOUT_DATA_DIR=./data\n",
+            "# Required. Your OpenAI or OpenAI-compatible API key.\n"
+            "OPENAI_API_KEY=\n\n"
+            "# Keep this value for OpenAI. Change it only if you use a compatible proxy.\n"
+            "OPENAI_BASE_URL=https://api.openai.com/v1\n\n"
+            "# Default model for question answering.\n"
+            "OPENAI_MODEL=gpt-4o-mini\n\n"
+            "# Local storage for PDFs, parsed text, and indexes.\n"
+            "PAPERSCOUT_DATA_DIR=./data\n\n"
+            "# Use cpu for widest compatibility. Change to cuda if NVIDIA CUDA works on your machine.\n"
+            "PAPERSCOUT_DEVICE=cpu\n",
             encoding="utf-8",
         )
         typer.echo(f"Wrote {env_path}")

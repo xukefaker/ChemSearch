@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import types
 
+from paperscout.config import Settings
 from paperscout.encoders import EncoderConfig, SentenceTransformerEncoder
 from paperscout.reranker import CrossEncoderReranker, RerankerConfig
 
@@ -73,3 +74,16 @@ def test_cross_encoder_reranker_prefers_cuda_when_available(monkeypatch) -> None
 
     assert reranker.device == "cuda:0"
     assert calls == [{"model_name": "test-reranker", "kwargs": {"trust_remote_code": True, "device": "cuda:0"}}]
+
+
+def test_settings_device_env_sets_all_runtime_devices(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PAPERSCOUT_DEVICE", "cuda")
+    monkeypatch.delenv("PAPERSCOUT_MINERU_DEVICE", raising=False)
+    monkeypatch.delenv("PAPERSCOUT_DENSE_DEVICE", raising=False)
+    monkeypatch.delenv("PAPERSCOUT_RERANKER_DEVICE", raising=False)
+
+    settings = Settings.from_env(tmp_path)
+
+    assert settings.mineru_device == "cuda"
+    assert settings.dense_device == "cuda"
+    assert settings.reranker_device == "cuda"
