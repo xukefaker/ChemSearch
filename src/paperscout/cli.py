@@ -455,7 +455,10 @@ def web(
         typer.echo(f"Web app not found: {web_dir}", err=True)
         raise typer.Exit(code=1)
     if not settings.search_current_manifest_path.exists():
-        typer.echo("No online index found. Run `paperscout index` before starting the web app.", err=True)
+        typer.echo(
+            "No online index found. Run `./paperscout index` first (Windows: `.\\paperscout.cmd index`).",
+            err=True,
+        )
         raise typer.Exit(code=1)
     if shutil.which("npm") is None:
         typer.echo("npm is required to start the web app.", err=True)
@@ -508,7 +511,7 @@ def demo_acl(
     _write_search_current_scope([settings.corpus])
     typer.echo(summary.model_dump_json(indent=2))
     typer.echo(f"Downloaded PDFs are under {settings.pdf_dir / 'acl' / str(year) / corpus_track}")
-    typer.echo("Next: run `paperscout index`, then `paperscout web`.")
+    typer.echo("Next: run `./paperscout index`, then `./paperscout web` (Windows: `.\\paperscout.cmd ...`).")
 
 
 @app.command("ingest-acl", hidden=True)

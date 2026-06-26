@@ -18,11 +18,11 @@ $env:VIRTUAL_ENV = Join-Path $Root ".venv"
 $env:PATH = (Join-Path $env:VIRTUAL_ENV "Scripts") + ";" + $env:PATH
 
 uv pip install -e . --torch-backend=auto
-uv run --no-sync paperscout init
-uv run --no-sync paperscout doctor
+& "$Root\paperscout.cmd" init
+& "$Root\paperscout.cmd" doctor
 
 Write-Host ""
 Write-Host "Done. Edit .env, then run:" -ForegroundColor Green
-Write-Host "uv run --no-sync paperscout demo-acl --max-papers 20"
-Write-Host "uv run --no-sync paperscout index"
-Write-Host "uv run --no-sync paperscout web"
+Write-Host ".\paperscout.cmd demo-acl --max-papers 20"
+Write-Host ".\paperscout.cmd index"
+Write-Host ".\paperscout.cmd web"

@@ -19,10 +19,10 @@ uv venv --python 3.12 --allow-existing .venv
 source .venv/bin/activate
 
 uv pip install -e . --torch-backend=auto
-uv run --no-sync paperscout init
-uv run --no-sync paperscout doctor
+./paperscout init
+./paperscout doctor
 
 printf '\n\033[32mDone. Edit .env, then run:\033[0m\n'
-printf 'uv run --no-sync paperscout demo-acl --max-papers 20\n'
-printf 'uv run --no-sync paperscout index\n'
-printf 'uv run --no-sync paperscout web\n'
+printf './paperscout demo-acl --max-papers 20\n'
+printf './paperscout index\n'
+printf './paperscout web\n'
