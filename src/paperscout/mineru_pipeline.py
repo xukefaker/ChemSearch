@@ -138,7 +138,7 @@ def run_mineru_pipeline(
         and paper.paper_id not in failed_ids
     ]
     if not pending_items:
-        logger.info("MinerU 阶段跳过: 当前 corpus 没有待解析 PDF。")
+        logger.info("[bold magenta]MinerU[/] | skipped corpus=%s reason=no_pending_pdfs", settings.corpus.key)
         return {"processed": 0, "failed": 0, "skipped_failed": len(failed_ids)}
 
     start_time = time.time()
@@ -152,7 +152,7 @@ def run_mineru_pipeline(
     total = len(pending_items)
 
     logger.info(
-        "MinerU 开始: corpus=%s pending=%s batch_limit=%s/%s",
+        "[bold magenta]MinerU[/] | start corpus=%s pending=%s batch_limit=%s/%s",
         settings.corpus.key,
         total,
         config.max_pdfs_per_batch,
@@ -164,7 +164,7 @@ def run_mineru_pipeline(
         batch_ids = [item.paper.paper_id for item in batch]
         batch_pages = sum(item.pages for item in batch)
         logger.info(
-            "MinerU 批次开始: batch=%s/%s papers=%s pages=%s ids=%s",
+            "[bold magenta]MinerU[/] | batch_start batch=%s/%s papers=%s pages=%s ids=%s",
             batch_index,
             len(batches),
             len(batch),
@@ -186,14 +186,14 @@ def run_mineru_pipeline(
             _emit_progress(
                 controller=controller,
                 phase="parse",
-                message=f"MinerU 已完成批次 {batch_index}/{len(batches)}",
+                message=f"MinerU completed batch {batch_index}/{len(batches)}",
                 completed=processed + failed,
                 total=total,
                 unit="papers",
                 started_at=start_time,
             )
         except Exception as exc:
-            logger.warning("MinerU 批次失败: batch=%s/%s error=%r", batch_index, len(batches), exc)
+            logger.warning("[bold magenta]MinerU[/] | batch_failed batch=%s/%s error=%r", batch_index, len(batches), exc)
             for item in batch:
                 _check_pause(controller)
                 try:
@@ -217,14 +217,14 @@ def run_mineru_pipeline(
                         stage="single_file_retry",
                         error_type=single_exc.__class__.__name__,
                         error_message=repr(single_exc),
-                        analysis="MinerU 在单篇论文重试阶段仍然失败，当前 parse 结果不能进入后续索引流程。",
-                        suggestion="检查该 PDF 与 MinerU 产物，必要时修复 PDF 后使用 rebuild 重新运行当前 corpus。",
+                        analysis="MinerU still failed during the single-paper retry, so this parse result cannot enter indexing.",
+                        suggestion="Inspect the PDF and MinerU artifacts. Fix the PDF if needed, then rerun this corpus with rebuild.",
                     )
-                    logger.error("MinerU 单篇失败: paper=%s error=%r", item.paper.paper_id, single_exc)
+                    logger.error("[bold magenta]MinerU[/] | single_paper_failed paper=%s error=%r", item.paper.paper_id, single_exc)
                 _emit_progress(
                     controller=controller,
                     phase="parse",
-                    message=f"MinerU 正在处理失败重试 {item.paper.paper_id}",
+                    message=f"MinerU retrying failed paper {item.paper.paper_id}",
                     completed=processed + failed,
                     total=total,
                     unit="papers",
@@ -232,7 +232,7 @@ def run_mineru_pipeline(
                 )
 
     logger.info(
-        "MinerU 完成: corpus=%s success=%s failed=%s elapsed=%s",
+        "[bold magenta]MinerU[/] | done corpus=%s success=%s failed=%s elapsed=%s",
         settings.corpus.key,
         processed,
         failed,
@@ -353,7 +353,7 @@ def _emit_progress(
     remaining = max(total - completed, 0)
     eta_seconds = remaining / rate if rate > 0 else None
     logger.info(
-        "MinerU 进度: completed=%s total=%s percent=%.2f rate_%s_per_min=%.2f eta=%s",
+        "[bold magenta]MinerU[/] | progress completed=%s total=%s percent=%.2f rate_%s_per_min=%.2f eta=%s",
         completed,
         total,
         (completed / total) * 100 if total else 100.0,

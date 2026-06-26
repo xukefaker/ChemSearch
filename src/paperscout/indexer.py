@@ -20,13 +20,13 @@ from .utils import now_iso, tokenize
 logger = logging.getLogger(__name__)
 
 ENCODE_LABELS = {
-    "paper": "论文级向量",
-    "section": "章节级向量",
-    "chunk": "通用块级向量",
-    "text_chunk": "正文块向量",
-    "table_chunk": "表格块向量",
-    "figure_chunk": "图片块向量",
-    "deep_chat_evidence": "深度对话证据向量",
+    "paper": "paper vectors",
+    "section": "section vectors",
+    "chunk": "chunk vectors",
+    "text_chunk": "text chunk vectors",
+    "table_chunk": "table chunk vectors",
+    "figure_chunk": "figure chunk vectors",
+    "deep_chat_evidence": "deep-chat evidence vectors",
 }
 
 
@@ -123,7 +123,7 @@ class IndexBuilder:
                 remaining = max(total_papers - index, 0)
                 eta_seconds = remaining / rate if rate > 0 else None
                 logger.info(
-                    "解析进度 paper_parse: completed=%s total=%s percent=%.2f indexed=%s failed=%s sections=%s objects=%s chunks=%s rate_papers_per_min=%.2f eta=%s",
+                    "[bold blue]Index[/] | parse_progress completed=%s total=%s percent=%.2f indexed=%s failed=%s sections=%s objects=%s chunks=%s rate_papers_per_min=%.2f eta=%s",
                     index,
                     total_papers,
                     (index / total_papers) * 100 if total_papers else 100.0,
@@ -364,7 +364,7 @@ class IndexBuilder:
         checkpoint_count = min(40, total)
         next_checkpoint = 1
 
-        logger.info("开始编码 %s: total=%s backend=%s", display_name, total, encoder.backend_name)
+        logger.info("[bold blue]Index[/] | encode_start dataset=%s total=%s backend=%s", display_name, total, encoder.backend_name)
 
         def progress_callback(completed: int, total_items: int) -> None:
             nonlocal next_checkpoint
@@ -379,7 +379,7 @@ class IndexBuilder:
             remaining = max(total_items - completed, 0)
             eta_seconds = remaining / rate if rate > 0 else None
             logger.info(
-                "编码进度 %s: completed=%s total=%s percent=%.2f rate_items_per_sec=%.2f eta=%s",
+                "[bold blue]Index[/] | encode_progress dataset=%s completed=%s total=%s percent=%.2f rate_items_per_sec=%.2f eta=%s",
                 name,
                 completed,
                 total_items,
@@ -393,7 +393,7 @@ class IndexBuilder:
         elapsed = time.perf_counter() - start_time
         rate = total / elapsed if elapsed > 0 else 0.0
         logger.info(
-            "编码完成 %s: total=%s elapsed=%s avg_rate_items_per_sec=%.2f",
+            "[bold blue]Index[/] | encode_done dataset=%s total=%s elapsed=%s avg_rate_items_per_sec=%.2f",
             display_name,
             total,
             self._format_duration(elapsed),

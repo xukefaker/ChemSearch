@@ -264,7 +264,7 @@ def test_job_state_is_reinitialized_for_each_run(tmp_path: Path, monkeypatch) ->
     assert first_state["job_id"] != second_state["job_id"]
     assert second_state["job_id"] == controller_two.job_id
     assert second_state["started_at"] != first_state["started_at"]
-    assert second_state["message"] == "离线作业已启动。"
+    assert second_state["message"] == "Offline job started."
     assert "progress" not in second_state
     assert last_job["job_id"] == controller_two.job_id
 

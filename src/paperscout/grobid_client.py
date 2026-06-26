@@ -28,9 +28,9 @@ class GrobidHeaderClient:
 
     def extract_header(self, pdf_path: Path) -> GrobidHeaderResult:
         if not self.settings.grobid_enabled:
-            raise RuntimeError("GROBID 未启用。请先在 config.toml 中开启 [grobid].enabled。")
+            raise RuntimeError("GROBID is disabled. Enable [grobid].enabled in config.toml first.")
         if not pdf_path.exists():
-            raise RuntimeError(f"GROBID 输入 PDF 不存在: {pdf_path}")
+            raise RuntimeError(f"GROBID input PDF does not exist: {pdf_path}")
 
         with pdf_path.open("rb") as handle:
             response = httpx.post(
@@ -44,7 +44,7 @@ class GrobidHeaderClient:
         if "xml" not in content_type:
             preview = response.text[:400].strip()
             raise RuntimeError(
-                "GROBID header API 未返回 XML。"
+                "GROBID header API did not return XML."
                 f" content_type={response.headers.get('content-type')!r}"
                 f" body_preview={preview!r}"
             )
@@ -86,7 +86,7 @@ def _parse_header_tei(xml_text: str) -> GrobidHeaderResult:
 
     deduped_affiliations = _dedupe_preserve([*global_affiliations.values(), *affiliation_pool])
     if not authors_structured:
-        raise RuntimeError("GROBID 未返回可用的作者信息。")
+        raise RuntimeError("GROBID did not return usable author metadata.")
 
     return GrobidHeaderResult(
         title=title,

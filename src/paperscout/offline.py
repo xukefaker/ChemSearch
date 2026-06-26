@@ -148,7 +148,7 @@ class OfflineJobController:
                 "updated_at": descriptor["started_at"],
                 "status": "running",
                 "phase": "initializing",
-                "message": "离线作业已启动。",
+                "message": "Offline job started.",
             },
         )
 
@@ -253,7 +253,7 @@ class OfflineJobController:
     def check_pause_requested(self) -> None:
         payload = self._read_json(self.control_path)
         if payload.get("pause_requested"):
-            raise PauseRequested("收到暂停请求，将在当前安全边界退出。")
+            raise PauseRequested("Pause requested. Exiting at the next safe boundary.")
 
     def write_active_corpus(self) -> None:
         self._write_json(self.settings.active_corpus_path, self.settings.corpus.to_dict())
@@ -328,7 +328,7 @@ class IncrementalIndexBuilder:
                     and self._final_outputs_exist()
                 ):
                     state = self.store.load_index_state()
-                    logger.info("Build 阶段跳过: 已存在完成索引并且 fingerprint 一致。")
+                    logger.info("[bold blue]Build[/] | skipped reason=completed_index_matches_fingerprint")
                     return BuildIndexSummary.model_validate(state)
 
         self._save_meta(
@@ -394,12 +394,12 @@ class IncrementalIndexBuilder:
             except Exception as exc:
                 failure = self.indexer.parser.build_failure_record(paper, exc)
                 self._append_prepare_failure(failure)
-                logger.error("Build 准备失败: paper=%s error=%s", paper.paper_id, failure.error_message)
+                logger.error("[bold blue]Build[/] | prepare_failed paper=%s error=%s", paper.paper_id, failure.error_message)
             completed += 1
             rate = completed / max(time.time() - start_time, 1e-6)
             eta_seconds = (total - completed) / rate if rate > 0 else None
             logger.info(
-                "Build 准备进度: completed=%s total=%s percent=%.2f rate_papers_per_min=%.2f eta=%s",
+                "[bold blue]Build[/] | prepare_progress completed=%s total=%s percent=%.2f rate_papers_per_min=%.2f eta=%s",
                 completed,
                 total,
                 (completed / total) * 100 if total else 100.0,
@@ -408,7 +408,7 @@ class IncrementalIndexBuilder:
             )
             self.controller.update_progress(
                 phase="build_prepare",
-                message=f"正在准备论文级 bundle: {paper.paper_id}",
+                message=f"Preparing paper bundle: {paper.paper_id}",
                 completed=completed,
                 total=total,
                 unit="papers",
@@ -536,7 +536,7 @@ class IncrementalIndexBuilder:
         shard_dir = self.shard_root / dataset_name
         shard_dir.mkdir(parents=True, exist_ok=True)
         display_name = ENCODE_LABELS.get(dataset_name, dataset_name)
-        logger.info("Build 编码开始: dataset=%s total=%s", display_name, total)
+        logger.info("[bold blue]Build[/] | encode_start dataset=%s total=%s", display_name, total)
         if total == 0:
             return
         encode_started_at = time.perf_counter()
@@ -556,8 +556,8 @@ class IncrementalIndexBuilder:
                 rate = overall_done / max(time.perf_counter() - encode_started_at, 1e-6)
                 eta_seconds = (total - overall_done) / rate if rate > 0 else None
                 logger.info(
-                    "Build 编码进度: dataset=%s completed=%s total=%s percent=%.2f rate_items_per_sec=%.2f eta=%s",
-                    dataset_name,
+                    "[bold blue]Build[/] | encode_progress dataset=%s completed=%s total=%s percent=%.2f rate_items_per_sec=%.2f eta=%s",
+                    display_name,
                     overall_done,
                     total,
                     (overall_done / total) * 100 if total else 100.0,
@@ -566,7 +566,7 @@ class IncrementalIndexBuilder:
                 )
                 self.controller.update_progress(
                     phase="build_encode",
-                    message=f"正在编码 {display_name}",
+                    message=f"Encoding {display_name}",
                     completed=overall_done,
                     total=total,
                     unit=f"{dataset_name}_records",
@@ -602,7 +602,7 @@ class IncrementalIndexBuilder:
                     ensure_ascii=False,
                 ),
             )
-        logger.info("Build 编码完成: dataset=%s total=%s", display_name, total)
+        logger.info("[bold blue]Build[/] | encode_done dataset=%s total=%s", display_name, total)
 
     def _finalize(
         self,
@@ -706,7 +706,7 @@ class IncrementalIndexBuilder:
         }
         _atomic_write_text(snapshot_layout_index / "index_state.json", json.dumps(index_state, ensure_ascii=False, indent=2))
 
-        self.controller.update_state(status="running", phase="build_finalize", message="正在提交新的正式索引快照。")
+        self.controller.update_state(status="running", phase="build_finalize", message="Publishing the new release index snapshot.")
         _publish_release_snapshot(snapshot_root=snapshot_root, current_link=self.settings.current_release_path)
 
         return BuildIndexSummary(
@@ -867,7 +867,7 @@ class OfflineRunner:
         controller = OfflineJobController(self.settings, mode=mode)
         controller.start()
         try:
-            controller.update_state(status="running", phase="manifest_sync", message="正在同步 corpus manifest 与 PDF。")
+            controller.update_state(status="running", phase="manifest_sync", message="Syncing corpus manifest and PDFs.")
             track_arg = ["all"] if self.settings.corpus.track == "all" else [self.settings.corpus.track]
             summary = ACLAnthologyIngestor(self.settings, self.store).ingest_event(
                 venue=self.settings.corpus.venue,
@@ -878,20 +878,20 @@ class OfflineRunner:
             source_papers = self.store.load_source_papers()
             self._ensure_local_pdfs(source_papers)
             if mode == "rebuild":
-                controller.update_state(status="running", phase="rebuild_cleanup", message="正在清理当前 corpus 的 parse/build 产物。")
+                controller.update_state(status="running", phase="rebuild_cleanup", message="Cleaning parse/build artifacts for this corpus.")
                 self._clear_for_rebuild(source_papers)
 
             parse_success, parse_failures = self._collect_parse_status(source_papers)
             if len(parse_success) + len(parse_failures) < len(source_papers):
-                controller.update_state(status="running", phase="parse", message="正在执行 MinerU parse。")
+                controller.update_state(status="running", phase="parse", message="Running MinerU parse.")
                 run_mineru_pipeline(settings=self.settings, papers=source_papers, controller=controller)
                 parse_success, parse_failures = self._collect_parse_status(source_papers)
 
             pending = len(source_papers) - len(parse_success) - len(parse_failures)
             if pending > 0:
-                raise RuntimeError(f"Parse 阶段结束后仍有 {pending} 篇论文既未成功也未记录失败。")
+                raise RuntimeError(f"Parse ended with {pending} paper(s) neither completed nor recorded as failed.")
 
-            controller.update_state(status="running", phase="build", message="正在构建可恢复索引。")
+            controller.update_state(status="running", phase="build", message="Building resumable indexes.")
             builder = IncrementalIndexBuilder(self.settings, controller)
             build_summary = builder.build(
                 source_papers=parse_success,
@@ -903,7 +903,7 @@ class OfflineRunner:
             controller.update_state(
                 status="running",
                 phase="refresh_search_current",
-                message="正在刷新统一在线检索集合 data/search_current。",
+                message="Refreshing the online search collection at data/search_current.",
             )
             search_current_manifest = rebuild_search_current(
                 self.settings.root_dir,
@@ -912,7 +912,7 @@ class OfflineRunner:
             )
             controller.write_active_corpus()
             controller.mark_completed(
-                message="离线作业已完成，统一在线检索集合已刷新。",
+                message="Offline job completed and the online search collection was refreshed.",
                 extra={
                     "build_summary": build_summary.model_dump(),
                     "search_current_manifest": search_current_manifest,
@@ -922,7 +922,7 @@ class OfflineRunner:
                 status="completed",
                 corpus=self.settings.corpus.key,
                 message=(
-                    f"Offline 作业完成: fetched={summary.fetched_papers} "
+                    f"Offline job completed: fetched={summary.fetched_papers} "
                     f"downloaded={summary.downloaded_pdfs} indexed={build_summary.indexed_papers}"
                 ),
                 build_summary=build_summary.model_dump(),
@@ -955,7 +955,7 @@ class OfflineRunner:
         if missing:
             preview = ", ".join(missing[:10])
             suffix = " ..." if len(missing) > 10 else ""
-            raise RuntimeError(f"以下论文缺少本地 PDF，不能进入 parse 阶段: {preview}{suffix}")
+            raise RuntimeError(f"These papers are missing local PDFs and cannot be parsed: {preview}{suffix}")
 
     def _collect_parse_status(
         self,
@@ -982,24 +982,24 @@ class OfflineEnrichmentRunner:
         controller = OfflineJobController(self.settings, mode=f"enrich:{mode}")
         controller.start()
         try:
-            controller.update_state(status="running", phase="manifest_load", message="正在加载当前 corpus 论文清单。")
+            controller.update_state(status="running", phase="manifest_load", message="Loading the current corpus manifest.")
             source_papers = self.store.load_source_papers()
             if not source_papers:
-                raise RuntimeError("当前 corpus 没有 source papers，不能执行 enrichment。")
+                raise RuntimeError("The current corpus has no source papers, so enrichment cannot run.")
             self._ensure_local_pdfs(source_papers)
 
             parse_success, parse_failures = self._collect_parse_status(source_papers)
             pending = len(source_papers) - len(parse_success) - len(parse_failures)
             if pending > 0:
                 raise RuntimeError(
-                    f"当前 corpus 仍有 {pending} 篇论文尚未完成 MinerU parse；请先运行 offline-run，再执行 offline-enrich。"
+                    f"The current corpus still has {pending} paper(s) without completed MinerU parse. Run offline-run before offline-enrich."
                 )
 
             if mode == "rebuild":
                 controller.update_state(
                     status="running",
                     phase="enrich_cleanup",
-                    message="正在清理当前 corpus 的 enrichment 缓存。",
+                    message="Cleaning enrichment cache for this corpus.",
                 )
                 self._clear_for_rebuild(parse_success)
 
@@ -1025,7 +1025,7 @@ class OfflineEnrichmentRunner:
 
                 try:
                     if not paper.local_pdf_path:
-                        raise RuntimeError(f"论文缺少 local_pdf_path: {paper.paper_id}")
+                        raise RuntimeError(f"Paper is missing local_pdf_path: {paper.paper_id}")
                     header_result = self.grobid.extract_header(Path(paper.local_pdf_path))
                     markdown_path = self.parser.resolve_artifacts(paper.paper_id).markdown_path
                     markdown_text = ""
@@ -1035,7 +1035,7 @@ class OfflineEnrichmentRunner:
 
                     if header_result.title and _normalized_title_key(header_result.title) != _normalized_title_key(paper.title):
                         logger.warning(
-                            "GROBID 标题与 manifest 标题不一致: paper=%s manifest=%r grobid=%r",
+                            "[bold yellow]Enrichment[/] | grobid_title_mismatch paper=%s manifest=%r grobid=%r",
                             paper.paper_id,
                             paper.title,
                             header_result.title,
@@ -1061,7 +1061,7 @@ class OfflineEnrichmentRunner:
                     )
                 except Exception as exc:
                     failed += 1
-                    logger.exception("Enrichment 失败: paper=%s error=%r", paper.paper_id, exc)
+                    logger.exception("[bold yellow]Enrichment[/] | failed paper=%s error=%r", paper.paper_id, exc)
                 processed += 1
                 self._emit_progress(
                     controller=controller,
@@ -1080,14 +1080,14 @@ class OfflineEnrichmentRunner:
                 "updated_at": now_iso(),
             }
             controller.mark_completed(
-                message="离线 enrichment 已完成。",
+                message="Offline enrichment completed.",
                 extra={"enrichment_summary": summary},
             )
             return OfflineEnrichmentResult(
                 status="completed",
                 corpus=self.settings.corpus.key,
                 message=(
-                    f"Offline enrichment 完成: processed={processed} skipped={skipped} "
+                    f"Offline enrichment completed: processed={processed} skipped={skipped} "
                     f"failed={failed} parse_failures={len(parse_failures)}"
                 ),
                 enrichment_summary=summary,
@@ -1110,7 +1110,7 @@ class OfflineEnrichmentRunner:
         if missing:
             preview = ", ".join(missing[:10])
             suffix = " ..." if len(missing) > 10 else ""
-            raise RuntimeError(f"以下论文缺少本地 PDF，不能执行 enrichment: {preview}{suffix}")
+            raise RuntimeError(f"These papers are missing local PDFs and cannot be enriched: {preview}{suffix}")
 
     def _collect_parse_status(
         self,
@@ -1150,7 +1150,7 @@ class OfflineEnrichmentRunner:
         rate = processed / elapsed
         eta_seconds = (total - processed) / rate if rate > 0 else None
         logger.info(
-            "Enrichment 进度: completed=%s total=%s percent=%.2f rate_papers_per_min=%.2f eta=%s last=%s",
+            "[bold yellow]Enrichment[/] | progress completed=%s total=%s percent=%.2f rate_papers_per_min=%.2f eta=%s last=%s",
             processed,
             total,
             (processed / total) * 100 if total else 100.0,
@@ -1160,7 +1160,7 @@ class OfflineEnrichmentRunner:
         )
         controller.update_progress(
             phase="enrich",
-            message=f"正在写入论文 enrichment: {paper_id}",
+            message=f"Writing paper enrichment: {paper_id}",
             completed=processed,
             total=total,
             unit="papers",
@@ -1175,12 +1175,12 @@ def _normalized_title_key(value: str) -> str:
 
 def request_pause(settings: Settings) -> dict[str, Any]:
     if not settings.active_job_path.exists():
-        return {"status": "idle", "message": "当前没有活动中的离线作业。"}
+        return {"status": "idle", "message": "There is no active offline job."}
     payload = json.loads(settings.active_job_path.read_text(encoding="utf-8"))
     pid = int(payload.get("pid") or 0)
     if pid <= 0 or not _pid_exists(pid):
         settings.active_job_path.unlink(missing_ok=True)
-        return {"status": "idle", "message": "活动作业记录已过期，已清理。"}
+        return {"status": "idle", "message": "The active job record was stale and has been cleared."}
     control_path = Path(str(payload["control_path"]))
     _atomic_write_text(
         control_path,
@@ -1208,34 +1208,34 @@ def render_status(settings: Settings) -> None:
                 **state,
                 "status": "stale",
                 "phase": str(state.get("phase") or "unknown"),
-                "message": "最近一次离线作业进程已不存在；状态文件未完成收尾。",
+                "message": "The latest offline job process no longer exists; the state file was not finalized.",
             }
     table = Table(box=box.ROUNDED, show_header=False, expand=True)
-    table.add_column("项", style="bold cyan", width=18)
-    table.add_column("值", style="white")
+    table.add_column("Field", style="bold cyan", width=18)
+    table.add_column("Value", style="white")
     descriptor_corpus = job_descriptor.get("corpus") if job_descriptor else None
     if descriptor_corpus:
         corpus_label = f"{descriptor_corpus['venue']}/{descriptor_corpus['year']}/{descriptor_corpus['track']}"
     else:
         corpus_label = settings.corpus.key
-    table.add_row("当前 corpus", corpus_label)
-    table.add_row("活动作业", str(active_job.get("job_id")) if active_job else "无")
-    table.add_row("状态", str(state.get("status") or "idle"))
-    table.add_row("阶段", str(state.get("phase") or "none"))
-    table.add_row("说明", str(state.get("message") or "暂无"))
+    table.add_row("Current corpus", corpus_label)
+    table.add_row("Active job", str(active_job.get("job_id")) if active_job else "none")
+    table.add_row("Status", str(state.get("status") or "idle"))
+    table.add_row("Phase", str(state.get("phase") or "none"))
+    table.add_row("Message", str(state.get("message") or "none"))
     progress = state.get("progress") or {}
     if progress and str(state.get("status") or "idle") in {"running", "paused"}:
-        table.add_row("进度", f"{progress.get('completed')}/{progress.get('total')} ({float(progress.get('percent') or 0.0):.2f}%)")
-        table.add_row("速率", f"{float(progress.get('rate_per_min') or 0.0):.2f}/min")
-        table.add_row("预计剩余", str(progress.get("eta") or "unknown"))
+        table.add_row("Progress", f"{progress.get('completed')}/{progress.get('total')} ({float(progress.get('percent') or 0.0):.2f}%)")
+        table.add_row("Rate", f"{float(progress.get('rate_per_min') or 0.0):.2f}/min")
+        table.add_row("ETA", str(progress.get("eta") or "unknown"))
     active_corpus = (
         json.loads(settings.active_corpus_path.read_text(encoding="utf-8"))
         if settings.active_corpus_path.exists()
         else None
     )
     if active_corpus:
-        table.add_row("当前在线 corpus", f"{active_corpus['venue']}/{active_corpus['year']}/{active_corpus['track']}")
-    console.print(Panel(table, title="Offline 状态", border_style="green"))
+        table.add_row("Online corpus", f"{active_corpus['venue']}/{active_corpus['year']}/{active_corpus['track']}")
+    console.print(Panel(table, title="Offline Status", border_style="green"))
 
 
 def _failure_to_updated_paper(source_paper: PaperRecord, failure: ParseFailureRecord) -> PaperRecord:

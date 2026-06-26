@@ -51,7 +51,7 @@ class ACLAnthologyIngestor:
         tracks = [track.lower() for track in (tracks or ["long"])]
         event_url = f"{ACL_BASE_URL}/events/{venue.lower()}-{year}/"
         logger.info(
-            "Manifest | 开始同步: corpus=%s/%s tracks=%s",
+            "[bold cyan]Manifest[/] | sync_start corpus=%s/%s tracks=%s",
             venue.lower(),
             year,
             ",".join(tracks),
@@ -65,7 +65,7 @@ class ACLAnthologyIngestor:
             filtered = filtered[:max_papers]
         self._hydrate_listing_titles(filtered)
         logger.info(
-            "Manifest | 已发现论文: corpus=%s/%s total=%s",
+            "[bold cyan]Manifest[/] | discovered corpus=%s/%s total=%s",
             venue.lower(),
             year,
             len(filtered),
@@ -208,7 +208,7 @@ class ACLAnthologyIngestor:
             return
 
         logger.info(
-            "Manifest | 开始校正论文标题: total=%s source=paper_page_meta",
+            "[bold cyan]Manifest[/] | title_check_start total=%s source=paper_page_meta",
             len(listings),
         )
         started_at = time.time()
@@ -234,7 +234,7 @@ class ACLAnthologyIngestor:
                     remaining = max(len(listings) - completed, 0)
                     eta_seconds = remaining / rate if rate > 0 else None
                     logger.info(
-                        "Manifest | 标题校正进度: completed=%s total=%s rate_papers_per_min=%.2f eta=%s last=%s",
+                        "[bold cyan]Manifest[/] | title_check_progress completed=%s total=%s rate_papers_per_min=%.2f eta=%s last=%s",
                         completed,
                         len(listings),
                         rate * 60,
@@ -280,7 +280,7 @@ class ACLAnthologyIngestor:
             return listing.paper_id, destination, True
 
         logger.info(
-            "PDF 下载 | 开始: total=%s 并发=%s 输出目录=%s",
+            "[bold green]PDF download[/] | start total=%s workers=%s output_dir=%s",
             len(download_jobs),
             4,
             str(self.settings.pdf_dir),
@@ -303,7 +303,7 @@ class ACLAnthologyIngestor:
                     remaining = max(len(download_jobs) - completed, 0)
                     eta_seconds = remaining / rate if rate > 0 else None
                     logger.info(
-                        "PDF 下载 | 进度: completed=%s total=%s 新下载=%s 复用=%s rate_papers_per_min=%.2f eta=%s last=%s",
+                        "[bold green]PDF download[/] | progress completed=%s total=%s new=%s cached=%s rate_papers_per_min=%.2f eta=%s last=%s",
                         completed,
                         len(download_jobs),
                         downloaded,
@@ -313,7 +313,7 @@ class ACLAnthologyIngestor:
                         paper_id,
                     )
         logger.info(
-            "PDF 下载 | 完成: total=%s 新下载=%s 复用=%s",
+            "[bold green]PDF download[/] | done total=%s new=%s cached=%s",
             len(download_jobs),
             downloaded,
             skipped,
