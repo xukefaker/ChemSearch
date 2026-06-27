@@ -44,6 +44,24 @@ class IndexProgress:
     def mineru_batch(self, *, batch_index: int, batches: int, papers: int, pages: int) -> None:
         self._update("mineru", status=f"batch {batch_index}/{batches}, {papers} papers, {pages} pages")
 
+    def mineru_heartbeat(
+        self,
+        *,
+        batch_index: int,
+        batches: int,
+        papers: int,
+        pages: int,
+        elapsed_seconds: int,
+        tick: int,
+    ) -> None:
+        dots = "." * (tick % 4 or 4)
+        status = (
+            f"batch {batch_index}/{batches}, processing {papers} papers, {pages} pages, "
+            f"elapsed {_format_elapsed(elapsed_seconds)} {dots}"
+        )
+        self._update("mineru", status=status)
+        self.progress.refresh()
+
     def mineru_update(self, *, completed: int, total: int, failed: int) -> None:
         status = f"failed={failed}" if failed else "ok"
         self._ensure("mineru", "Parse PDFs", total=max(total, 1), status=status)
@@ -127,3 +145,13 @@ class IndexProgress:
         if status is not None:
             kwargs["status"] = status
         self.progress.update(task_id, **kwargs)
+
+
+def _format_elapsed(seconds: int) -> str:
+    minutes, secs = divmod(max(seconds, 0), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"

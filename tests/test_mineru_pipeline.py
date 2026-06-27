@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
-from paperscout.mineru_pipeline import BatchItem, _run_batch
+from paperscout.mineru_pipeline import BatchItem, _progress_heartbeat, _run_batch
 from paperscout.models import PaperRecord
 
 
@@ -75,6 +76,22 @@ def test_run_batch_quiet_output_exposes_text_stream_attributes(tmp_path: Path, m
         table=True,
         quiet_output=True,
     )
+
+
+def test_progress_heartbeat_updates_while_batch_is_blocked() -> None:
+    class _Progress:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def mineru_heartbeat(self, **kwargs) -> None:
+            self.calls += 1
+
+    progress = _Progress()
+
+    with _progress_heartbeat(progress, batch_index=1, batches=2, papers=5, pages=115, interval=0.01):
+        time.sleep(0.03)
+
+    assert progress.calls > 0
 
 
 def test_run_batch_quiet_output_keeps_failure_tail(tmp_path: Path, monkeypatch) -> None:

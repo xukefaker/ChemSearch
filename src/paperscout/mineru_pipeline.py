@@ -4,10 +4,11 @@ import json
 import logging
 import os
 import shutil
+import threading
 import time
 import warnings
 from collections.abc import Callable
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -215,16 +216,23 @@ def run_mineru_pipeline(
                 " ".join(batch_ids),
             )
         try:
-            _run_batch(
-                batch,
-                output_dir=settings.mineru_output_dir,
-                lang=settings.mineru_lang or "en",
-                parse_method="txt" if settings.mineru_method == "auto" else settings.mineru_method,
-                backend=settings.mineru_backend,
-                formula=settings.mineru_formula,
-                table=settings.mineru_table,
-                quiet_output=progress is not None,
-            )
+            with _progress_heartbeat(
+                progress,
+                batch_index=batch_index,
+                batches=len(batches),
+                papers=len(batch),
+                pages=batch_pages,
+            ):
+                _run_batch(
+                    batch,
+                    output_dir=settings.mineru_output_dir,
+                    lang=settings.mineru_lang or "en",
+                    parse_method="txt" if settings.mineru_method == "auto" else settings.mineru_method,
+                    backend=settings.mineru_backend,
+                    formula=settings.mineru_formula,
+                    table=settings.mineru_table,
+                    quiet_output=progress is not None,
+                )
             _check_cancel(cancel_check)
             processed += len(batch)
             remove_failure_entries(settings.mineru_failure_manifest_path, set(batch_ids))
@@ -250,16 +258,23 @@ def run_mineru_pipeline(
                 if progress is not None:
                     progress.mineru_batch(batch_index=batch_index, batches=len(batches), papers=1, pages=item.pages)
                 try:
-                    _run_batch(
-                        [item],
-                        output_dir=settings.mineru_output_dir,
-                        lang=settings.mineru_lang or "en",
-                        parse_method="txt" if settings.mineru_method == "auto" else settings.mineru_method,
-                        backend=settings.mineru_backend,
-                        formula=settings.mineru_formula,
-                        table=settings.mineru_table,
-                        quiet_output=progress is not None,
-                    )
+                    with _progress_heartbeat(
+                        progress,
+                        batch_index=batch_index,
+                        batches=len(batches),
+                        papers=1,
+                        pages=item.pages,
+                    ):
+                        _run_batch(
+                            [item],
+                            output_dir=settings.mineru_output_dir,
+                            lang=settings.mineru_lang or "en",
+                            parse_method="txt" if settings.mineru_method == "auto" else settings.mineru_method,
+                            backend=settings.mineru_backend,
+                            formula=settings.mineru_formula,
+                            table=settings.mineru_table,
+                            quiet_output=progress is not None,
+                        )
                     _check_cancel(cancel_check)
                     processed += 1
                     remove_failure_entries(settings.mineru_failure_manifest_path, {item.paper.paper_id})
@@ -301,6 +316,44 @@ def run_mineru_pipeline(
             _format_duration(time.time() - start_time),
         )
     return {"processed": processed, "failed": failed, "skipped_failed": len(failed_ids)}
+
+
+@contextmanager
+def _progress_heartbeat(
+    progress: Any | None,
+    *,
+    batch_index: int,
+    batches: int,
+    papers: int,
+    pages: int,
+    interval: float = 1.0,
+):
+    if progress is None:
+        yield
+        return
+    stop = threading.Event()
+    started_at = time.monotonic()
+
+    def beat() -> None:
+        tick = 0
+        while not stop.wait(interval):
+            tick += 1
+            progress.mineru_heartbeat(
+                batch_index=batch_index,
+                batches=batches,
+                papers=papers,
+                pages=pages,
+                elapsed_seconds=int(time.monotonic() - started_at),
+                tick=tick,
+            )
+
+    thread = threading.Thread(target=beat, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=1)
 
 
 def _run_batch(
