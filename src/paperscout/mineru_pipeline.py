@@ -62,7 +62,7 @@ class _TailCapture:
 
 @dataclass(slots=True)
 class MinerUPipelineConfig:
-    max_pdfs_per_batch: int = 8
+    max_pdfs_per_batch: int = 1
     max_pages_per_batch: int = 120
     min_batch_inference_size: int = 384
     render_threads: int = 1

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from paperscout.mineru_pipeline import BatchItem, _progress_heartbeat, _run_batch
+from paperscout.mineru_pipeline import BatchItem, MinerUPipelineConfig, _build_batches, _progress_heartbeat, _run_batch
 from paperscout.models import PaperRecord
 
 
@@ -92,6 +92,19 @@ def test_progress_heartbeat_updates_while_batch_is_blocked() -> None:
         time.sleep(0.03)
 
     assert progress.calls > 0
+
+
+def test_default_mineru_batches_are_paper_sized_for_responsive_progress(tmp_path: Path) -> None:
+    pdfs = []
+    for index in range(3):
+        pdf_path = tmp_path / f"paper-{index}.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4\n")
+        pdfs.append(BatchItem(paper=_batch_item(pdf_path).paper, pdf_path=pdf_path, pages=20))
+
+    config = MinerUPipelineConfig()
+    batches = _build_batches(pdfs, max_pdfs=config.max_pdfs_per_batch, max_pages=config.max_pages_per_batch)
+
+    assert [len(batch) for batch in batches] == [1, 1, 1]
 
 
 def test_run_batch_quiet_output_keeps_failure_tail(tmp_path: Path, monkeypatch) -> None:
