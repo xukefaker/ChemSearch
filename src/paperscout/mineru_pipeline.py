@@ -151,11 +151,13 @@ def run_mineru_pipeline(
     papers: list[PaperRecord],
     controller: Any | None = None,
     cancel_check: Callable[[], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
     progress: Any | None = None,
     config: MinerUPipelineConfig | None = None,
 ) -> dict[str, int]:
     config = config or MinerUPipelineConfig()
     _configure_mineru_env(settings=settings, config=config)
+    mineru_device = os.environ.get("MINERU_DEVICE_MODE", "auto")
 
     failed_entries = load_failure_entries(settings.mineru_failure_manifest_path)
     failed_ids = {
@@ -188,7 +190,12 @@ def run_mineru_pipeline(
     failed = 0
     total = len(pending_items)
     if progress is not None:
-        progress.mineru_start(total=total, batches=len(batches))
+        progress.mineru_start(
+            total=total,
+            batches=len(batches),
+            pages=sum(item.pages for item in pending_items),
+            device=mineru_device,
+        )
 
     if progress is None:
         logger.info(
@@ -204,8 +211,17 @@ def run_mineru_pipeline(
         _check_cancel(cancel_check)
         batch_ids = [item.paper.paper_id for item in batch]
         batch_pages = sum(item.pages for item in batch)
+        current = _batch_label(batch)
         if progress is not None:
-            progress.mineru_batch(batch_index=batch_index, batches=len(batches), papers=len(batch), pages=batch_pages)
+            progress.mineru_batch(
+                completed=processed + failed,
+                total=total,
+                batch_index=batch_index,
+                batches=len(batches),
+                papers=len(batch),
+                pages=batch_pages,
+                current=current,
+            )
         else:
             logger.info(
                 "[bold magenta]MinerU[/] | batch_start batch=%s/%s papers=%s pages=%s ids=%s",
@@ -218,10 +234,14 @@ def run_mineru_pipeline(
         try:
             with _progress_heartbeat(
                 progress,
+                completed=processed + failed,
+                total=total,
                 batch_index=batch_index,
                 batches=len(batches),
                 papers=len(batch),
                 pages=batch_pages,
+                current=current,
+                cancel_requested=cancel_requested,
             ):
                 _run_batch(
                     batch,
@@ -255,15 +275,28 @@ def run_mineru_pipeline(
             for item in batch:
                 _check_pause(controller)
                 _check_cancel(cancel_check)
+                current = _batch_label([item])
                 if progress is not None:
-                    progress.mineru_batch(batch_index=batch_index, batches=len(batches), papers=1, pages=item.pages)
-                try:
-                    with _progress_heartbeat(
-                        progress,
+                    progress.mineru_batch(
+                        completed=processed + failed,
+                        total=total,
                         batch_index=batch_index,
                         batches=len(batches),
                         papers=1,
                         pages=item.pages,
+                        current=current,
+                    )
+                try:
+                    with _progress_heartbeat(
+                        progress,
+                        completed=processed + failed,
+                        total=total,
+                        batch_index=batch_index,
+                        batches=len(batches),
+                        papers=1,
+                        pages=item.pages,
+                        current=current,
+                        cancel_requested=cancel_requested,
                     ):
                         _run_batch(
                             [item],
@@ -322,10 +355,14 @@ def run_mineru_pipeline(
 def _progress_heartbeat(
     progress: Any | None,
     *,
+    completed: int = 0,
+    total: int = 1,
     batch_index: int,
     batches: int,
     papers: int,
     pages: int,
+    current: str = "current PDF",
+    cancel_requested: Callable[[], bool] | None = None,
     interval: float = 1.0,
 ):
     if progress is None:
@@ -339,12 +376,16 @@ def _progress_heartbeat(
         while not stop.wait(interval):
             tick += 1
             progress.mineru_heartbeat(
+                completed=completed,
+                total=total,
                 batch_index=batch_index,
                 batches=batches,
                 papers=papers,
                 pages=pages,
+                current=current,
                 elapsed_seconds=int(time.monotonic() - started_at),
                 tick=tick,
+                cancel_requested=bool(cancel_requested and cancel_requested()),
             )
 
     thread = threading.Thread(target=beat, daemon=True)
@@ -461,6 +502,20 @@ def _build_batches(items: list[BatchItem], *, max_pdfs: int, max_pages: int) -> 
     if current:
         batches.append(current)
     return batches
+
+
+def _batch_label(batch: list[BatchItem]) -> str:
+    if len(batch) == 1:
+        item = batch[0]
+        return _short_label(item.pdf_path.name or item.paper.paper_id)
+    first = _short_label(batch[0].pdf_path.name or batch[0].paper.paper_id)
+    return f"{first} +{len(batch) - 1} more"
+
+
+def _short_label(value: str, max_chars: int = 56) -> str:
+    if len(value) <= max_chars:
+        return value
+    return f"{value[: max_chars - 1]}..."
 
 
 def _pdf_page_count(pdf_path: Path) -> int:

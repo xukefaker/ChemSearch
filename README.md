@@ -35,7 +35,7 @@ PAPERSCOUT_DEVICE=auto
 Try a small ACL demo:
 
 ```bash
-./paperscout demo-acl --max-papers 20
+./paperscout demo-acl --max-papers 5
 ./paperscout index
 ./paperscout web
 ```
@@ -63,7 +63,7 @@ notepad .env
 Run the demo:
 
 ```powershell
-.\paperscout.cmd demo-acl --max-papers 20
+.\paperscout.cmd demo-acl --max-papers 5
 .\paperscout.cmd index
 .\paperscout.cmd web
 ```
@@ -84,6 +84,8 @@ mkdir -p pdfs
 ```
 
 During indexing, press `q` to cancel. PaperScout removes staged files from that run and keeps the previous working index.
+
+MinerU PDF parsing is the slowest step. PaperScout shows real paper-level progress: the current PDF, page count, elapsed time, and completed paper count. If you press `q` while MinerU is inside one PDF, PaperScout finishes that PDF first, then stops and removes staged files from the run.
 
 ## Configuration
 

@@ -535,6 +535,69 @@ def test_index_command_uses_active_corpus_for_demo_papers(tmp_path: Path, monkey
     assert not list((settings.data_dir / ".runs").glob("index-*"))
 
 
+def test_index_command_limits_mineru_parse_to_max_papers(tmp_path: Path, monkeypatch) -> None:
+    from paperscout.models import PaperRecord
+    import paperscout.mineru_pipeline as mineru_module
+
+    monkeypatch.setattr(cli_module, "PROJECT_ROOT", str(tmp_path))
+    settings = Settings.from_env(tmp_path, corpus=CorpusSpec.from_values("personal", 2026, "library"))
+    settings.ensure_dirs()
+    pdfs = []
+    for index in range(2):
+        pdf_path = tmp_path / f"demo-{index}.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4\n")
+        pdfs.append(pdf_path)
+    LocalStore(settings).save_raw_papers(
+        [
+            PaperRecord(
+                paper_id=f"personal-demo-{index}",
+                title=f"Demo Paper {index}",
+                venue="personal",
+                year=2026,
+                track="library",
+                url=pdf_path.as_uri(),
+                pdf_url=pdf_path.as_uri(),
+                local_pdf_path=str(pdf_path),
+            )
+            for index, pdf_path in enumerate(pdfs)
+        ]
+    )
+
+    seen: dict[str, list[str]] = {}
+
+    def _fake_run_mineru_pipeline(**kwargs) -> dict[str, int]:
+        seen["parsed"] = [paper.paper_id for paper in kwargs["papers"]]
+        return {"processed": len(kwargs["papers"]), "failed": 0, "skipped_failed": 0}
+
+    class _Summary:
+        indexed_papers = 1
+
+        def model_dump(self) -> dict[str, int]:
+            return {"indexed_papers": self.indexed_papers}
+
+    class _FakeIndexBuilder:
+        def __init__(self, builder_settings: Settings, store: LocalStore, *, cancel_check=None, progress=None) -> None:
+            self.settings = builder_settings
+
+        def load_paper_ids(self, paper_id_file: Path) -> list[str]:
+            return []
+
+        def build(self, max_papers: int | None = None, paper_ids: list[str] | None = None) -> _Summary:
+            assert max_papers == 1
+            self.settings.current_release_path.mkdir(parents=True, exist_ok=True)
+            return _Summary()
+
+    monkeypatch.setattr(mineru_module, "run_mineru_pipeline", _fake_run_mineru_pipeline)
+    monkeypatch.setattr(cli_module, "IndexBuilder", _FakeIndexBuilder)
+    monkeypatch.setattr(cli_module, "rebuild_search_current", lambda root, corpora=None: {"corpora": []})
+
+    result = CliRunner().invoke(cli_app, ["index", "--year", "2026", "--max-papers", "1"])
+
+    assert result.exit_code == 0, result.stdout
+    assert seen["parsed"] == ["personal-demo-0"]
+    assert not list((settings.data_dir / ".runs").glob("index-*"))
+
+
 def test_index_command_cleans_staged_files_on_cancel(tmp_path: Path, monkeypatch) -> None:
     from paperscout.models import PaperRecord
 

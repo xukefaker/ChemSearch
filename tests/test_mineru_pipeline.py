@@ -82,9 +82,11 @@ def test_progress_heartbeat_updates_while_batch_is_blocked() -> None:
     class _Progress:
         def __init__(self) -> None:
             self.calls = 0
+            self.last = {}
 
         def mineru_heartbeat(self, **kwargs) -> None:
             self.calls += 1
+            self.last = kwargs
 
     progress = _Progress()
 
@@ -92,6 +94,33 @@ def test_progress_heartbeat_updates_while_batch_is_blocked() -> None:
         time.sleep(0.03)
 
     assert progress.calls > 0
+    assert progress.last["current"] == "current PDF"
+
+
+def test_progress_heartbeat_reports_queued_cancel() -> None:
+    class _Progress:
+        def __init__(self) -> None:
+            self.last = {}
+
+        def mineru_heartbeat(self, **kwargs) -> None:
+            self.last = kwargs
+
+    progress = _Progress()
+
+    with _progress_heartbeat(
+        progress,
+        batch_index=1,
+        batches=1,
+        papers=1,
+        pages=12,
+        current="paper.pdf",
+        cancel_requested=lambda: True,
+        interval=0.01,
+    ):
+        time.sleep(0.03)
+
+    assert progress.last["cancel_requested"] is True
+    assert progress.last["current"] == "paper.pdf"
 
 
 def test_default_mineru_batches_are_paper_sized_for_responsive_progress(tmp_path: Path) -> None:

@@ -7,10 +7,8 @@ from rich.progress import (
     Progress,
     SpinnerColumn,
     TaskID,
-    TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
-    TimeRemainingColumn,
 )
 
 
@@ -21,10 +19,8 @@ class IndexProgress:
             SpinnerColumn(),
             TextColumn("[bold cyan]{task.description}"),
             BarColumn(),
-            TaskProgressColumn(),
             MofNCompleteColumn(),
             TimeElapsedColumn(),
-            TimeRemainingColumn(),
             TextColumn("[dim]{task.fields[status]}"),
             console=self.console,
             transient=False,
@@ -38,28 +34,62 @@ class IndexProgress:
     def __exit__(self, exc_type, exc, tb) -> None:
         self.progress.stop()
 
-    def mineru_start(self, *, total: int, batches: int) -> None:
-        self._ensure("mineru", "Parse PDFs", total=max(total, 1), status=f"0/{batches} batches")
+    def mineru_start(self, *, total: int, batches: int, pages: int, device: str) -> None:
+        status = f"{total} PDFs, {pages} pages, {batches} MinerU jobs, device={device}; first run may load models"
+        self._ensure("mineru", "Parse PDFs", total=max(total, 1), status=status)
 
-    def mineru_batch(self, *, batch_index: int, batches: int, papers: int, pages: int) -> None:
-        self._update("mineru", status=f"batch {batch_index}/{batches}, {papers} papers, {pages} pages")
-
-    def mineru_heartbeat(
+    def mineru_batch(
         self,
         *,
+        completed: int,
+        total: int,
         batch_index: int,
         batches: int,
         papers: int,
         pages: int,
+        current: str,
+    ) -> None:
+        status = _mineru_status(
+            batch_index=batch_index,
+            batches=batches,
+            papers=papers,
+            pages=pages,
+            current=current,
+            elapsed_seconds=0,
+            tick=0,
+            cancel_requested=False,
+        )
+        self._update("mineru", completed=completed, total=max(total, 1), status=status)
+
+    def mineru_heartbeat(
+        self,
+        *,
+        completed: int,
+        total: int,
+        batch_index: int,
+        batches: int,
+        papers: int,
+        pages: int,
+        current: str,
         elapsed_seconds: int,
         tick: int,
+        cancel_requested: bool,
     ) -> None:
-        dots = "." * (tick % 4 or 4)
-        status = (
-            f"batch {batch_index}/{batches}, processing {papers} papers, {pages} pages, "
-            f"elapsed {_format_elapsed(elapsed_seconds)} {dots}"
+        self._update(
+            "mineru",
+            completed=completed,
+            total=max(total, 1),
+            status=_mineru_status(
+                batch_index=batch_index,
+                batches=batches,
+                papers=papers,
+                pages=pages,
+                current=current,
+                elapsed_seconds=elapsed_seconds,
+                tick=tick,
+                cancel_requested=cancel_requested,
+            ),
         )
-        self._update("mineru", status=status)
         self.progress.refresh()
 
     def mineru_update(self, *, completed: int, total: int, failed: int) -> None:
@@ -155,3 +185,25 @@ def _format_elapsed(seconds: int) -> str:
     if minutes:
         return f"{minutes}m{secs:02d}s"
     return f"{secs}s"
+
+
+def _mineru_status(
+    *,
+    batch_index: int,
+    batches: int,
+    papers: int,
+    pages: int,
+    current: str,
+    elapsed_seconds: int,
+    tick: int,
+    cancel_requested: bool,
+) -> str:
+    dots = "." * (tick % 4 or 4)
+    if cancel_requested:
+        return f"q received; finishing current PDF, then cleanup | current={current} | elapsed {_format_elapsed(elapsed_seconds)}"
+    if papers == 1:
+        return f"current={current} | {pages} pages | MinerU parsing {dots} | elapsed {_format_elapsed(elapsed_seconds)}"
+    return (
+        f"job {batch_index}/{batches} | {papers} PDFs, {pages} pages | "
+        f"current={current} | MinerU parsing {dots} | elapsed {_format_elapsed(elapsed_seconds)}"
+    )

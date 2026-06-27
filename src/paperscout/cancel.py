@@ -52,6 +52,10 @@ class ConsoleCancelWatcher:
         if self._cancelled.is_set():
             raise CancelRequested("Canceled by user.")
 
+    @property
+    def requested(self) -> bool:
+        return self._cancelled.is_set()
+
     def _watch(self) -> None:
         if os.name == "nt":
             import msvcrt

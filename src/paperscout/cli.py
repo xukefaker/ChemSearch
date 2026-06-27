@@ -98,6 +98,34 @@ def _write_search_current_scope(selected_corpora: list[CorpusSpec]) -> None:
     settings.active_corpus_path.unlink(missing_ok=True)
 
 
+def _select_source_papers_for_index(
+    source_papers: list[PaperRecord],
+    *,
+    max_papers: int | None,
+    paper_ids: list[str] | None,
+) -> list[PaperRecord]:
+    selected = source_papers
+    if paper_ids is not None:
+        paper_lookup = {paper.paper_id: paper for paper in source_papers}
+        missing_ids: list[str] = []
+        selected = []
+        for paper_id in paper_ids:
+            paper = paper_lookup.get(paper_id)
+            if paper is None:
+                missing_ids.append(paper_id)
+                continue
+            selected.append(paper)
+        if missing_ids:
+            preview = ", ".join(missing_ids[:5])
+            suffix = " ..." if len(missing_ids) > 5 else ""
+            raise RuntimeError(f"{len(missing_ids)} paper ids were not found in data/raw/papers.jsonl: {preview}{suffix}")
+    if max_papers is not None:
+        selected = selected[:max_papers]
+    if not selected:
+        raise RuntimeError("No source papers selected for index.")
+    return selected
+
+
 def _personal_corpus(year: int | None = None) -> CorpusSpec:
     return CorpusSpec.from_values("personal", year or datetime.now(timezone.utc).year, "library")
 
@@ -417,20 +445,29 @@ def index_library(
 
         staged_settings = _staged_index_settings(settings, run_id, stage_parse=run_parse)
         staged_store = LocalStore(staged_settings)
-        Console(stderr=True).print("[bold cyan]Index[/] Press [bold]q[/] to cancel and clean this run.")
+        Console(stderr=True).print(
+            "[bold cyan]Index[/] Press [bold]q[/] to cancel. "
+            "If MinerU is parsing a PDF, PaperScout stops after that PDF and cleans this run."
+        )
         with ConsoleCancelWatcher() as cancel, IndexProgress() as progress, _quiet_index_loggers():
+            builder = IndexBuilder(staged_settings, staged_store, cancel_check=cancel.check, progress=progress)
+            paper_ids = builder.load_paper_ids(paper_id_file) if paper_id_file is not None else None
+            selected_papers = _select_source_papers_for_index(
+                source_papers,
+                max_papers=max_papers,
+                paper_ids=paper_ids,
+            )
             if run_parse:
                 from .mineru_pipeline import run_mineru_pipeline
 
                 run_mineru_pipeline(
                     settings=staged_settings,
-                    papers=source_papers,
+                    papers=selected_papers,
                     cancel_check=cancel.check,
+                    cancel_requested=lambda: cancel.requested,
                     progress=progress,
                 )
 
-            builder = IndexBuilder(staged_settings, staged_store, cancel_check=cancel.check, progress=progress)
-            paper_ids = builder.load_paper_ids(paper_id_file) if paper_id_file is not None else None
             summary = builder.build(max_papers=max_papers, paper_ids=paper_ids)
             cancel.check()
 
@@ -439,7 +476,7 @@ def index_library(
 
             progress.publish_start()
             if run_parse:
-                _publish_mineru_artifacts(staged_settings, settings, source_papers)
+                _publish_mineru_artifacts(staged_settings, settings, selected_papers)
             _publish_current_release(staged_settings, settings)
             _write_completed_index_state(settings, summary)
             manifest = rebuild_search_current(_project_root(), corpora=[settings.corpus])
