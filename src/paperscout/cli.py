@@ -20,6 +20,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from .acl_anthology import ACLAnthologyIngestor
+from .branding import app_name, app_tagline
 from .cancel import CancelRequested, ConsoleCancelWatcher
 from .config import CorpusSpec, Settings
 from .devices import resolve_mineru_device, resolve_torch_device, torch_cuda_report
@@ -49,7 +50,7 @@ def _components() -> tuple[Settings, LocalStore]:
 
 
 def _exit_with_error(message: str) -> None:
-    Console(stderr=True).print(Panel(message, title="PaperScout cannot continue", border_style="red"))
+    Console(stderr=True).print(Panel(message, title=f"{app_name()} cannot continue", border_style="red"))
     raise typer.Exit(code=1)
 
 
@@ -327,15 +328,15 @@ def init_project(force_env: bool = typer.Option(False, "--force-env", help="Over
             "# Default model for question answering.\n"
             "OPENAI_MODEL=gpt-4o-mini\n\n"
             "# Local storage for PDFs, parsed text, and indexes.\n"
-            "PAPERSCOUT_DATA_DIR=./data\n\n"
+            "PAPERVERIFIER_DATA_DIR=./data\n\n"
             "# auto prefers CUDA or Apple MPS when PyTorch can use it, otherwise CPU.\n"
-            "PAPERSCOUT_DEVICE=auto\n",
+            "PAPERVERIFIER_DEVICE=auto\n",
             encoding="utf-8",
         )
         typer.echo(f"Wrote {env_path}")
     settings = Settings.from_env(root_dir=root, corpus=_personal_corpus())
     settings.ensure_dirs()
-    typer.echo(f"Initialized PaperScout at {root}")
+    typer.echo(f"Initialized {app_name()} at {root}")
 
 
 @app.command("doctor")
@@ -372,7 +373,7 @@ def doctor() -> None:
         color = {"ok": "green", "warning": "yellow", "error": "red"}[status]
         table.add_row(name, value, f"[{color}]{status}[/]")
     console = Console()
-    console.print(Panel(table, title="PaperScout Doctor", border_style="cyan"))
+    console.print(Panel(table, title=f"{app_name()} Doctor", border_style="cyan"))
 
 
 @app.command("add-pdfs")
@@ -439,15 +440,15 @@ def index_library(
         if not source_papers:
             corpus_key = f"{settings.corpus.venue}/{settings.corpus.year}/{settings.corpus.track}"
             raise RuntimeError(
-                f"No PDFs are registered for {corpus_key}. Run `paperscout add-pdfs ./your-pdfs` "
-                "or `paperscout demo-acl` first."
+                f"No PDFs are registered for {corpus_key}. Run `paperverifier add-pdfs ./your-pdfs` "
+                "or `paperverifier demo-acl` first."
             )
 
         staged_settings = _staged_index_settings(settings, run_id, stage_parse=run_parse)
         staged_store = LocalStore(staged_settings)
         Console(stderr=True).print(
             "[bold cyan]Index[/] Press [bold]q[/] to cancel. "
-            "If MinerU is parsing a PDF, PaperScout stops after that PDF and cleans this run."
+            f"If MinerU is parsing a PDF, {app_name()} stops after that PDF and cleans this run."
         )
         with ConsoleCancelWatcher() as cancel, IndexProgress() as progress, _quiet_index_loggers():
             builder = IndexBuilder(staged_settings, staged_store, cancel_check=cancel.check, progress=progress)
@@ -511,7 +512,7 @@ def web(
         raise typer.Exit(code=1)
     if not settings.search_current_manifest_path.exists():
         typer.echo(
-            "No online index found. Run `./paperscout index` first (Windows: `.\\paperscout.cmd index`).",
+            "No online index found. Run `./paperverifier index` first (Windows: `.\\paperverifier.cmd index`).",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -522,8 +523,12 @@ def web(
         subprocess.run(["npm", "--prefix", str(web_dir), "install"], cwd=root, check=True)
 
     env = os.environ.copy()
+    env["PAPERVERIFIER_ROOT"] = str(root)
     env["PAPERSCOUT_ROOT"] = str(root)
+    env["PAPERVERIFIER_API_BASE_URL"] = f"http://127.0.0.1:{api_port}/api"
     env["PAPERSCOUT_API_BASE_URL"] = f"http://127.0.0.1:{api_port}/api"
+    env.setdefault("NEXT_PUBLIC_PAPERVERIFIER_APP_NAME", app_name())
+    env.setdefault("NEXT_PUBLIC_PAPERVERIFIER_APP_TAGLINE", app_tagline())
     api_process = subprocess.Popen(
         [
             sys.executable,
@@ -544,7 +549,7 @@ def web(
         cwd=root,
         env=env,
     )
-    typer.echo(f"PaperScout web: http://{host}:{web_port}")
+    typer.echo(f"{app_name()} web: http://{host}:{web_port}")
     raise typer.Exit(code=_run_until_exit([api_process, web_process]))
 
 
@@ -569,7 +574,7 @@ def demo_acl(
     _write_search_current_scope([settings.corpus])
     typer.echo(summary.model_dump_json(indent=2))
     typer.echo(f"Downloaded PDFs are under {settings.pdf_dir / 'acl' / str(year) / corpus_track}")
-    typer.echo("Next: run `./paperscout index`, then `./paperscout web` (Windows: `.\\paperscout.cmd ...`).")
+    typer.echo("Next: run `./paperverifier index`, then `./paperverifier web` (Windows: `.\\paperverifier.cmd ...`).")
 
 
 @app.command("ingest-acl", hidden=True)

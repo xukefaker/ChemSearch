@@ -3,7 +3,7 @@ requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "paperscout"
+name = "paperverifier"
 version = "0.1.0"
 description = "Local paper search and evidence-grounded Q&A for your PDF library."
 requires-python = ">=3.11,<3.13"
@@ -30,7 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-paperscout = "paperscout.cli:app"
+paperverifier = "paperscout.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/paperscout"]

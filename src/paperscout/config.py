@@ -223,8 +223,8 @@ class Settings:
             user_payload = tomllib.loads(config_path.read_text(encoding="utf-8"))
             _deep_update(config_payload, user_payload)
 
-        device = _as_optional_str(os.getenv("PAPERSCOUT_DEVICE"))
-        data_dir_override = os.getenv("PAPERSCOUT_DATA_DIR")
+        device = _as_optional_str(_env_value("PAPERSCOUT_DEVICE"))
+        data_dir_override = _env_value("PAPERSCOUT_DATA_DIR")
         data_dir = _resolve_dir(
             base_dir,
             _env_or_config(
@@ -256,7 +256,7 @@ class Settings:
         deep_chat_index_dir = current_release_path / "indexes" / "deep_chat"
         mineru_output_dir = _resolve_dir(
             base_dir,
-            os.getenv("PAPERSCOUT_MINERU_OUTPUT_DIR")
+            _env_value("PAPERSCOUT_MINERU_OUTPUT_DIR")
             or (
                 str(data_dir / "parsed" / "mineru")
                 if data_dir_override is not None
@@ -346,7 +346,7 @@ class Settings:
                 )
             ),
             mineru_device=_as_optional_str(
-                os.getenv("PAPERSCOUT_MINERU_DEVICE")
+                _env_value("PAPERSCOUT_MINERU_DEVICE")
                 or device
                 or _env_or_config(
                     env_name="PAPERSCOUT_MINERU_DEVICE",
@@ -602,7 +602,7 @@ class Settings:
                 )
             ),
             reranker_device=_as_optional_str(
-                os.getenv("PAPERSCOUT_RERANKER_DEVICE")
+                _env_value("PAPERSCOUT_RERANKER_DEVICE")
                 or device
                 or _env_or_config(
                     env_name="PAPERSCOUT_RERANKER_DEVICE",
@@ -660,7 +660,7 @@ class Settings:
                 )
             ),
             dense_device=_as_optional_str(
-                os.getenv("PAPERSCOUT_DENSE_DEVICE")
+                _env_value("PAPERSCOUT_DENSE_DEVICE")
                 or device
                 or _env_or_config(
                     env_name="PAPERSCOUT_DENSE_DEVICE",
@@ -743,13 +743,22 @@ def _deep_update(target: dict[str, Any], src: dict[str, Any]) -> None:
 
 
 def _env_or_config(*, env_name: str, payload: dict[str, Any], path: tuple[str, ...]) -> Any:
-    raw = os.getenv(env_name)
+    raw = _env_value(env_name)
     if raw not in (None, ""):
         return raw
     current: Any = payload
     for part in path:
         current = current[part]
     return current
+
+
+def _env_value(env_name: str) -> str | None:
+    if env_name.startswith("PAPERSCOUT_"):
+        public_name = "PAPERVERIFIER_" + env_name.removeprefix("PAPERSCOUT_")
+        public_value = os.getenv(public_name)
+        if public_value not in (None, ""):
+            return public_value
+    return os.getenv(env_name)
 
 
 def _resolve_dir(base_dir: Path, value: Any) -> Path:
@@ -763,9 +772,9 @@ def _resolve_corpus(*, base_dir: Path, data_dir: Path, explicit: CorpusSpec | No
     if explicit is not None:
         return explicit
 
-    env_venue = os.getenv("PAPERSCOUT_VENUE")
-    env_year = os.getenv("PAPERSCOUT_YEAR")
-    env_track = os.getenv("PAPERSCOUT_TRACK")
+    env_venue = _env_value("PAPERSCOUT_VENUE")
+    env_year = _env_value("PAPERSCOUT_YEAR")
+    env_track = _env_value("PAPERSCOUT_TRACK")
     if any(value not in (None, "") for value in (env_venue, env_year, env_track)):
         return CorpusSpec.from_values(env_venue, int(env_year) if env_year not in (None, "") else None, env_track)
 

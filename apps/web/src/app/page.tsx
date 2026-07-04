@@ -28,6 +28,7 @@ import {
   upsertProjectThread,
 } from '@/lib/client-api';
 import { clearCurrentProjectId, loadCurrentProjectId, saveCurrentProjectId } from '@/lib/project-ui-state';
+import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
 import type {
   CorpusCatalogEntry,
   PaperChatCitation,
@@ -1871,8 +1872,8 @@ export default function ChatPage() {
               minimal={isRunningView}
             />
             <div>
-              <div className="text-[0.95rem] font-black tracking-tight text-slate-950">EviPAIR</div>
-              <div className="text-[0.66rem] font-semibold uppercase tracking-[0.22em] text-slate-400">Neural literature interface</div>
+              <div className="text-[0.95rem] font-black tracking-tight text-slate-950">{APP_NAME}</div>
+              <div className="text-[0.66rem] font-semibold uppercase tracking-[0.22em] text-slate-400">{APP_TAGLINE}</div>
             </div>
           </div>
           <div className="flex items-center gap-3">

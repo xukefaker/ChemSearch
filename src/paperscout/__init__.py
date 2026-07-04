@@ -1,4 +1,4 @@
-"""PaperScout package."""
+"""PaperVerifier application package."""
 
 __all__ = ["SearchEngine", "Settings"]
 

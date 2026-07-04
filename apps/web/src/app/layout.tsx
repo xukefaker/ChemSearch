@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter, Newsreader } from "next/font/google";
 import "./globals.css";
+import { APP_NAME, APP_TAGLINE } from "@/lib/branding";
 
 const bodyFont = Inter({
   variable: "--font-body-family",
@@ -21,8 +22,8 @@ const scholarFont = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "PaperScout",
-  description: "Evidence-aware scholarly paper search demo for ACL-family venues.",
+  title: APP_NAME,
+  description: APP_TAGLINE,
 };
 
 export default function RootLayout({

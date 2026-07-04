@@ -23,6 +23,7 @@ from .routes.papers import router as papers_router
 from .routes.projects import router as projects_router
 from .routes.search import router as search_router
 from .routes.traces import router as traces_router
+from ..branding import app_name
 
 
 @dataclass(slots=True)
@@ -276,7 +277,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="PaperScout", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title=app_name(), version="0.1.0", lifespan=lifespan)
     app.include_router(health_router, prefix="/api", tags=["health"])
     app.include_router(corpora_router, prefix="/api", tags=["corpora"])
     app.include_router(search_router, prefix="/api", tags=["search"])
