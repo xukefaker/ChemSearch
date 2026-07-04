@@ -865,7 +865,7 @@ export default function ChatPage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [projectDetail, setProjectDetail] = useState<ProjectDetailResponse | null>(null);
-  const [projectState, setProjectState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [projectState, setProjectState] = useState<'loading' | 'ready' | 'error'>('ready');
   const [projectError, setProjectError] = useState<string | null>(null);
   const [corpusCatalog, setCorpusCatalog] = useState<CorpusCatalogEntry[]>([]);
   const [catalogError, setCatalogError] = useState<string | null>(null);
