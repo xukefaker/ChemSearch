@@ -137,6 +137,7 @@ def _env_with_local_node(root: Path) -> dict[str, str]:
     node_bin = _local_node_bin(root)
     if node_bin is not None:
         env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
+    env.setdefault("npm_config_cache", str(root / ".local" / "npm-cache"))
     return env
 
 
@@ -627,10 +628,10 @@ def web(
     if npm_path is None:
         typer.echo("npm is required to start the web app. Run `./scripts/install.sh` first.", err=True)
         raise typer.Exit(code=1)
-    if install_deps and not web_dir.joinpath("node_modules").exists():
-        subprocess.run([npm_path, "--prefix", str(web_dir), "install"], cwd=root, check=True)
-
     env = _env_with_local_node(root)
+    if install_deps and not web_dir.joinpath("node_modules").exists():
+        subprocess.run([npm_path, "--prefix", str(web_dir), "install"], cwd=root, env=env, check=True)
+
     env["CHEMVERIFY_ROOT"] = str(root)
     env["CHEMVERIFY_API_BASE_URL"] = f"http://127.0.0.1:{api_port}/api"
     env.setdefault("NEXT_PUBLIC_CHEMVERIFY_APP_NAME", app_name())
