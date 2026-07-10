@@ -1442,7 +1442,10 @@ Run search to show ranked papers.
                   </section>
 
                   <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <h2 className="mb-5 text-lg font-semibold">Paper QA provider</h2>
+                    <h2 className="text-lg font-semibold">Paper QA provider</h2>
+                    <p className="mb-5 mt-2 text-sm leading-6 text-slate-500">
+                      API-hosted providers receive the question and selected paper content. Use a local endpoint when documents must remain on this device, and process only PDFs you are authorized to use.
+                    </p>
                     <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => event.preventDefault()}>
                       <label className="block md:col-span-2">
                         <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Base URL</span>

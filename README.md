@@ -117,6 +117,10 @@ CHEMSEARCH_SPLADE_MODEL=naver/splade-cocondenser-ensembledistil
 
 `CHEMSEARCH_DEVICE=auto` prefers CUDA or Apple MPS when PyTorch can use it. If no accelerator is available, ChemSearch warns and continues on CPU.
 
+## Privacy and document rights
+
+Corpus preparation, indexing, and retrieval run locally. When an API-hosted QA model is selected, ChemSearch sends the user query and content from the selected paper to the configured model provider. Use a locally hosted model when documents must remain on the device, and process only PDFs that you are authorized to use. ChemSearch stores uploaded PDFs in the local deployment and does not publish them.
+
 ## Troubleshooting
 
 ```bash
