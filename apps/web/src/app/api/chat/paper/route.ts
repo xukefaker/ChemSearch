@@ -15,7 +15,6 @@ export async function POST(request: NextRequest) {
   if (!viewer.evidence_units.length) {
     return appError('not_ready', 'This paper has not been indexed yet.', 'Wait for indexing to finish before asking paper-level questions.');
   }
-  const citation = viewer.evidence_units[0];
   const settings = effectiveSettings();
   try {
     const messages = [
@@ -46,6 +45,21 @@ export async function POST(request: NextRequest) {
       }
     }
     if (lastError) throw lastError;
+    const answerTerms = new Set(`${payload.query} ${answer}`.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) ?? []);
+    const citation =
+      viewer.evidence_units
+        .filter((unit) => unit.text.trim().length >= 80)
+        .map((unit) => {
+          const unitTerms = new Set(unit.text.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) ?? []);
+          const score = [...answerTerms].filter((term) => unitTerms.has(term)).length;
+          return { unit, score };
+        })
+        .sort(
+          (left, right) =>
+            right.score - left.score ||
+            left.unit.page_start - right.unit.page_start ||
+            right.unit.text.length - left.unit.text.length,
+        )[0]?.unit ?? viewer.evidence_units[0];
     return NextResponse.json({
       paper_id: viewer.paper_id,
       model: settings.qa_model,
