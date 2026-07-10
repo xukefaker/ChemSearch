@@ -12,8 +12,7 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Legacy UI files are kept for reference in this isolated prototype.
-    // The new workbench entrypoint and fixture API live under src/app and src/lib/workbench-fixtures.ts.
+    // Legacy UI files are kept for reference outside the current application entrypoint.
     "src/components/**",
     "src/lib/animation/**",
   ]),
