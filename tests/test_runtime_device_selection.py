@@ -3,10 +3,10 @@ from __future__ import annotations
 import sys
 import types
 
-from chemverify.config import Settings
-from chemverify.devices import resolve_mineru_device, resolve_torch_device
-from chemverify.encoders import EncoderConfig, SentenceTransformerEncoder
-from chemverify.reranker import CrossEncoderReranker, RerankerConfig
+from chemsearch.config import Settings
+from chemsearch.devices import resolve_mineru_device, resolve_torch_device
+from chemsearch.encoders import EncoderConfig, SentenceTransformerEncoder
+from chemsearch.reranker import CrossEncoderReranker, RerankerConfig
 
 
 def _install_fake_torch(
@@ -89,10 +89,10 @@ def test_cross_encoder_reranker_prefers_cuda_when_available(monkeypatch) -> None
 
 
 def test_settings_device_env_sets_all_runtime_devices(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("CHEMVERIFY_DEVICE", "cuda")
-    monkeypatch.delenv("CHEMVERIFY_MINERU_DEVICE", raising=False)
-    monkeypatch.delenv("CHEMVERIFY_DENSE_DEVICE", raising=False)
-    monkeypatch.delenv("CHEMVERIFY_RERANKER_DEVICE", raising=False)
+    monkeypatch.setenv("CHEMSEARCH_DEVICE", "cuda")
+    monkeypatch.delenv("CHEMSEARCH_MINERU_DEVICE", raising=False)
+    monkeypatch.delenv("CHEMSEARCH_DENSE_DEVICE", raising=False)
+    monkeypatch.delenv("CHEMSEARCH_RERANKER_DEVICE", raising=False)
 
     settings = Settings.from_env(tmp_path)
 

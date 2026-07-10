@@ -1,12 +1,12 @@
-# ChemVerify
+# ChemSearch
 
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![uv](https://img.shields.io/badge/env-uv-4B32C3)
 ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 
-ChemVerify is a local evidence-verified chemistry paper search system for PDF libraries.
+ChemSearch is an interactive system for search and question answering over local chemistry paper libraries.
 
-Put PDFs in a folder, build a local index, then search and read papers through a web interface with cited evidence.
+Put PDFs in a folder, build a local index, search the collection, and ask cited questions about a selected paper.
 
 ## Requirements
 
@@ -20,8 +20,8 @@ The installer uses a system Node.js 20+ if one exists. Otherwise it downloads a 
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-git clone https://github.com/xukefaker/ChemVerify.git
-cd ChemVerify
+git clone https://github.com/xukefaker/ChemSearch.git
+cd ChemSearch
 ./scripts/install.sh
 ```
 
@@ -31,15 +31,15 @@ Edit `.env`:
 OPENAI_API_KEY=sk-...
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
-CHEMVERIFY_DEVICE=auto
+CHEMSEARCH_DEVICE=auto
 ```
 
 Run a small chemistry demo:
 
 ```bash
-./chemverify demo-chem --max-papers 5
-./chemverify index
-./chemverify web
+./chemsearch demo-chem --max-papers 5
+./chemsearch index
+./chemsearch web
 ```
 
 Open `http://127.0.0.1:4000`.
@@ -51,8 +51,8 @@ Install `uv`, clone the repo, then run the installer:
 
 ```powershell
 winget install --id=astral-sh.uv -e
-git clone https://github.com/xukefaker/ChemVerify.git
-cd ChemVerify
+git clone https://github.com/xukefaker/ChemSearch.git
+cd ChemSearch
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
 ```
 
@@ -65,9 +65,9 @@ notepad .env
 Run the demo:
 
 ```powershell
-.\chemverify.cmd demo-chem --max-papers 5
-.\chemverify.cmd index
-.\chemverify.cmd web
+.\chemsearch.cmd demo-chem --max-papers 5
+.\chemsearch.cmd index
+.\chemsearch.cmd web
 ```
 
 Open `http://127.0.0.1:4000`.
@@ -80,16 +80,16 @@ Open `http://127.0.0.1:4000`.
 mkdir -p pdfs
 # Put PDFs in ./pdfs
 
-./chemverify add-pdfs ./pdfs
-./chemverify index
-./chemverify web
+./chemsearch add-pdfs ./pdfs
+./chemsearch index
+./chemsearch web
 ```
 
-During indexing, press `q` to cancel. ChemVerify removes staged files from that run and keeps the previous working index.
+During indexing, press `q` to cancel. ChemSearch removes staged files from that run and keeps the previous working index.
 
 ## Configuration
 
-The installer creates `.venv/`, installs ChemVerify with an automatically selected PyTorch backend, creates `.env`, and runs `chemverify doctor`.
+The installer creates `.venv/`, installs ChemSearch with an automatically selected PyTorch backend, creates `.env`, and runs `chemsearch doctor`.
 
 The only required setting is:
 
@@ -102,17 +102,17 @@ Useful defaults:
 ```env
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
-CHEMVERIFY_DATA_DIR=./data
-CHEMVERIFY_DEVICE=auto
-CHEMVERIFY_APP_NAME=ChemVerify
+CHEMSEARCH_DATA_DIR=./data
+CHEMSEARCH_DEVICE=auto
+CHEMSEARCH_APP_NAME=ChemSearch
 ```
 
-`CHEMVERIFY_DEVICE=auto` prefers CUDA or Apple MPS when PyTorch can use it. If no accelerator is available, ChemVerify warns and continues on CPU.
+`CHEMSEARCH_DEVICE=auto` prefers CUDA or Apple MPS when PyTorch can use it. If no accelerator is available, ChemSearch warns and continues on CPU.
 
 ## Troubleshooting
 
 ```bash
-./chemverify doctor
+./chemsearch doctor
 ```
 
 - `CUDA available=False`: CPU still works, but indexing is slower. If you expected an NVIDIA GPU, reinstall after checking your driver.

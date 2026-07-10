@@ -193,18 +193,18 @@ const defaultSettings: WorkbenchSettings = {
   cuda_visible_devices: '',
 };
 
-const globalStore = globalThis as typeof globalThis & { __chemverifyWorkbench?: WorkbenchStore };
+const globalStore = globalThis as typeof globalThis & { __chemsearchWorkbench?: WorkbenchStore };
 
 export function getWorkbenchStore(): WorkbenchStore {
-  if (!globalStore.__chemverifyWorkbench) {
-    globalStore.__chemverifyWorkbench = {
+  if (!globalStore.__chemsearchWorkbench) {
+    globalStore.__chemsearchWorkbench = {
       papers: [...papers],
       libraryJobs: [...initialJobs],
       searchJobs: new Map(),
       settings: { ...defaultSettings },
     };
   }
-  return globalStore.__chemverifyWorkbench;
+  return globalStore.__chemsearchWorkbench;
 }
 
 export function publicSettings(settings = getWorkbenchStore().settings): WorkbenchSettings {

@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
-Write-Host "ChemVerify installer" -ForegroundColor Cyan
+Write-Host "ChemSearch installer" -ForegroundColor Cyan
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
   Write-Host "uv is required. Install it first:" -ForegroundColor Red
@@ -21,7 +21,7 @@ function Test-NodeOk {
 }
 
 function Install-LocalNode {
-  $NodeVersion = if ($env:CHEMVERIFY_NODE_VERSION) { $env:CHEMVERIFY_NODE_VERSION } else { "22.13.1" }
+  $NodeVersion = if ($env:CHEMSEARCH_NODE_VERSION) { $env:CHEMSEARCH_NODE_VERSION } else { "22.13.1" }
   $Arch = switch ($env:PROCESSOR_ARCHITECTURE) {
     "AMD64" { "x64" }
     "ARM64" { "arm64" }
@@ -73,11 +73,11 @@ $env:VIRTUAL_ENV = Join-Path $Root ".venv"
 $env:PATH = (Join-Path $env:VIRTUAL_ENV "Scripts") + ";" + $env:PATH
 
 uv pip install -e . --torch-backend=auto
-& "$Root\chemverify.cmd" init
-& "$Root\chemverify.cmd" doctor
+& "$Root\chemsearch.cmd" init
+& "$Root\chemsearch.cmd" doctor
 
 Write-Host ""
 Write-Host "Done. Edit .env, then run:" -ForegroundColor Green
-Write-Host ".\chemverify.cmd demo-chem --max-papers 5"
-Write-Host ".\chemverify.cmd index"
-Write-Host ".\chemverify.cmd web"
+Write-Host ".\chemsearch.cmd demo-chem --max-papers 5"
+Write-Host ".\chemsearch.cmd index"
+Write-Host ".\chemsearch.cmd web"

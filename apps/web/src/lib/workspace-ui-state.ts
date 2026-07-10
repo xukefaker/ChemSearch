@@ -7,9 +7,9 @@ export type WorkspaceUiState = {
 };
 
 const STORAGE_KEYS = {
-  desktopSplitPct: 'chemverify.workspace.desktop_split_pct',
-  mobilePane: 'chemverify.workspace.mobile_pane',
-  rationaleOpen: 'chemverify.workspace.rationale_open',
+  desktopSplitPct: 'chemsearch.workspace.desktop_split_pct',
+  mobilePane: 'chemsearch.workspace.mobile_pane',
+  rationaleOpen: 'chemsearch.workspace.rationale_open',
 } as const;
 
 const DEFAULT_STATE: WorkspaceUiState = {

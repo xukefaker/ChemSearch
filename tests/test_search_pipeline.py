@@ -11,17 +11,17 @@ import numpy as np
 import pytest
 from typer.testing import CliRunner
 
-import chemverify.cli as cli_module
-from chemverify.acl_anthology import ACLAnthologyIngestor, _ListingEntry
-from chemverify.api import app
-from chemverify.cancel import CancelRequested
-from chemverify.cli import app as cli_app
-from chemverify.config import CorpusSpec, Settings
-from chemverify.indexer import IndexBuilder
-from chemverify.pdf_parser import PDFParser
-from chemverify.planner import QueryPlanner
-from chemverify.search_current import rebuild_search_current
-from chemverify.storage import LocalStore
+import chemsearch.cli as cli_module
+from chemsearch.acl_anthology import ACLAnthologyIngestor, _ListingEntry
+from chemsearch.api import app
+from chemsearch.cancel import CancelRequested
+from chemsearch.cli import app as cli_app
+from chemsearch.config import CorpusSpec, Settings
+from chemsearch.indexer import IndexBuilder
+from chemsearch.pdf_parser import PDFParser
+from chemsearch.planner import QueryPlanner
+from chemsearch.search_current import rebuild_search_current
+from chemsearch.storage import LocalStore
 
 
 class _FakeOpenAIResponse:
@@ -257,7 +257,7 @@ def _seed_fixture_data(tmp_path: Path) -> Settings:
             ],
         },
     ]
-    from chemverify.models import PaperRecord
+    from chemsearch.models import PaperRecord
 
     papers = []
     for spec in paper_specs:
@@ -298,12 +298,12 @@ def _refresh_search_current(settings: Settings) -> None:
 def _enable_mocked_api(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_MODEL", "gpt-5.4-mini")
-    monkeypatch.setattr("chemverify.planner.httpx.Client", _FakeOpenAIClient)
-    monkeypatch.setattr("chemverify.search.httpx.Client", _FakeOpenAIClient)
-    monkeypatch.setattr("chemverify.encoders.SentenceTransformerEncoder.__init__", _fake_encoder_init)
-    monkeypatch.setattr("chemverify.encoders.SentenceTransformerEncoder.encode", _fake_encoder_encode)
-    monkeypatch.setattr("chemverify.reranker.CrossEncoderReranker.__init__", _fake_reranker_init)
-    monkeypatch.setattr("chemverify.reranker.CrossEncoderReranker.score_pairs", _fake_reranker_scores)
+    monkeypatch.setattr("chemsearch.planner.httpx.Client", _FakeOpenAIClient)
+    monkeypatch.setattr("chemsearch.search.httpx.Client", _FakeOpenAIClient)
+    monkeypatch.setattr("chemsearch.encoders.SentenceTransformerEncoder.__init__", _fake_encoder_init)
+    monkeypatch.setattr("chemsearch.encoders.SentenceTransformerEncoder.encode", _fake_encoder_encode)
+    monkeypatch.setattr("chemsearch.reranker.CrossEncoderReranker.__init__", _fake_reranker_init)
+    monkeypatch.setattr("chemsearch.reranker.CrossEncoderReranker.score_pairs", _fake_reranker_scores)
 
 
 def _write_image_fixture(settings: Settings, paper_id: str, image_name: str) -> Path:
@@ -424,7 +424,7 @@ def test_query_planner_rejects_blank_bucket_queries_and_duplicate_ids(tmp_path: 
 def test_search_returns_grouped_results_and_trace(tmp_path: Path, monkeypatch) -> None:
     _enable_mocked_api(monkeypatch)
     settings = _seed_fixture_data(tmp_path)
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(settings.data_dir))
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(settings.data_dir))
     store = LocalStore(settings)
     _build_and_refresh_search_current(settings, store)
 
@@ -466,7 +466,7 @@ def test_index_builder_honors_max_papers(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_index_command_uses_active_corpus_for_demo_papers(tmp_path: Path, monkeypatch) -> None:
-    from chemverify.models import PaperRecord
+    from chemsearch.models import PaperRecord
 
     monkeypatch.setattr(cli_module, "PROJECT_ROOT", str(tmp_path))
     settings = Settings.from_env(tmp_path, corpus=CorpusSpec.from_values("acl", 2025, "long"))
@@ -536,8 +536,8 @@ def test_index_command_uses_active_corpus_for_demo_papers(tmp_path: Path, monkey
 
 
 def test_index_command_limits_mineru_parse_to_max_papers(tmp_path: Path, monkeypatch) -> None:
-    from chemverify.models import PaperRecord
-    import chemverify.mineru_pipeline as mineru_module
+    from chemsearch.models import PaperRecord
+    import chemsearch.mineru_pipeline as mineru_module
 
     monkeypatch.setattr(cli_module, "PROJECT_ROOT", str(tmp_path))
     settings = Settings.from_env(tmp_path, corpus=CorpusSpec.from_values("personal", 2026, "library"))
@@ -599,7 +599,7 @@ def test_index_command_limits_mineru_parse_to_max_papers(tmp_path: Path, monkeyp
 
 
 def test_index_command_cleans_staged_files_on_cancel(tmp_path: Path, monkeypatch) -> None:
-    from chemverify.models import PaperRecord
+    from chemsearch.models import PaperRecord
 
     monkeypatch.setattr(cli_module, "PROJECT_ROOT", str(tmp_path))
     settings = Settings.from_env(tmp_path, corpus=CorpusSpec.from_values("personal", 2026, "library"))
@@ -668,8 +668,8 @@ def test_search_does_not_fabricate_zero_signal_sections_or_evidence(tmp_path: Pa
     store = LocalStore(settings)
     _build_and_refresh_search_current(settings, store)
 
-    from chemverify.models import EvidenceBucket, QueryAspect, QueryPlan, ScopeConstraints, VerifierRubric
-    from chemverify.search import SearchEngine
+    from chemsearch.models import EvidenceBucket, QueryAspect, QueryPlan, ScopeConstraints, VerifierRubric
+    from chemsearch.search import SearchEngine
 
     engine = SearchEngine(settings, store)
     engine.load()
@@ -706,7 +706,7 @@ def test_search_does_not_fabricate_zero_signal_sections_or_evidence(tmp_path: Pa
 def test_api_search_matches_cli_top_satisfied_result(tmp_path: Path, monkeypatch) -> None:
     _enable_mocked_api(monkeypatch)
     settings = _seed_fixture_data(tmp_path)
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(settings.data_dir))
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(settings.data_dir))
     store = LocalStore(settings)
     _build_and_refresh_search_current(settings, store)
 
@@ -722,9 +722,15 @@ def test_api_search_matches_cli_top_satisfied_result(tmp_path: Path, monkeypatch
         health_result = client.get("/api/health")
         assert health_result.status_code == 200
 
+        project_result = client.post("/api/projects", json={"title": "GAIA Search"})
+        assert project_result.status_code == 200
         create_result = client.post(
             "/api/search/jobs",
-            json={"query": "Find ACL 2025 papers that evaluate on GAIA and report GAIA results", "top_k": 10},
+            json={
+                "project_id": project_result.json()["project_id"],
+                "query": "Find ACL 2025 papers that evaluate on GAIA and report GAIA results",
+                "top_k": 10,
+            },
         )
         assert create_result.status_code == 200
         job_payload = create_result.json()
@@ -754,11 +760,11 @@ def test_api_search_matches_cli_top_satisfied_result(tmp_path: Path, monkeypatch
 def test_search_result_includes_main_image_url_and_optional_enrichment_fields(tmp_path: Path, monkeypatch) -> None:
     _enable_mocked_api(monkeypatch)
     settings = _seed_fixture_data(tmp_path)
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(settings.data_dir))
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(settings.data_dir))
     store = LocalStore(settings)
     _build_and_refresh_search_current(settings, store)
 
-    from chemverify.models import ObjectRecord
+    from chemsearch.models import ObjectRecord
 
     image_path = _write_image_fixture(settings, "acl2025.test.3", "overview.png")
     store.save_objects(
@@ -796,13 +802,13 @@ def test_search_result_includes_main_image_url_and_optional_enrichment_fields(tm
 
 def test_main_image_url_can_use_public_api_base_url(tmp_path: Path, monkeypatch) -> None:
     _enable_mocked_api(monkeypatch)
-    monkeypatch.setenv("CHEMVERIFY_PUBLIC_API_BASE_URL", "https://demo.example/api")
+    monkeypatch.setenv("CHEMSEARCH_PUBLIC_API_BASE_URL", "https://demo.example/api")
     settings = _seed_fixture_data(tmp_path)
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(settings.data_dir))
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(settings.data_dir))
     store = LocalStore(settings)
     _build_and_refresh_search_current(settings, store)
 
-    from chemverify.models import ObjectRecord
+    from chemsearch.models import ObjectRecord
 
     image_path = _write_image_fixture(settings, "acl2025.test.3", "public.png")
     store.save_objects(
@@ -836,11 +842,11 @@ def test_main_image_url_can_use_public_api_base_url(tmp_path: Path, monkeypatch)
 
 def test_api_serves_paper_image_asset(tmp_path: Path, monkeypatch) -> None:
     settings = _seed_fixture_data(tmp_path)
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(settings.data_dir))
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(settings.data_dir))
     store = LocalStore(settings)
     _build_and_refresh_search_current(settings, store)
 
-    from chemverify.models import ObjectRecord
+    from chemsearch.models import ObjectRecord
 
     image_path = _write_image_fixture(settings, "acl2025.test.3", "figure_1.png")
     store.save_objects(
@@ -871,11 +877,11 @@ def test_api_serves_paper_image_asset(tmp_path: Path, monkeypatch) -> None:
 def test_image_urls_keep_relative_paths_to_avoid_basename_collisions(tmp_path: Path, monkeypatch) -> None:
     _enable_mocked_api(monkeypatch)
     settings = _seed_fixture_data(tmp_path)
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(settings.data_dir))
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(settings.data_dir))
     store = LocalStore(settings)
     _build_and_refresh_search_current(settings, store)
 
-    from chemverify.models import ObjectRecord
+    from chemsearch.models import ObjectRecord
 
     primary_image = _write_image_fixture(settings, "acl2025.test.3", "figure_1.png")
     alt_image = settings.mineru_output_dir / "acl2025.test.3" / "alt" / "figure_1.png"
@@ -930,7 +936,7 @@ def test_image_urls_keep_relative_paths_to_avoid_basename_collisions(tmp_path: P
 def test_invalid_cached_enrichment_is_ignored(tmp_path: Path, monkeypatch) -> None:
     _enable_mocked_api(monkeypatch)
     settings = _seed_fixture_data(tmp_path)
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(settings.data_dir))
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(settings.data_dir))
     store = LocalStore(settings)
     _build_and_refresh_search_current(settings, store)
 
@@ -975,7 +981,7 @@ output_dir = "data/parsed/mineru"
         encoding="utf-8",
     )
     override_dir = tmp_path / "override_data"
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(override_dir))
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(override_dir))
 
     settings = Settings.from_env(root)
 
@@ -1053,10 +1059,10 @@ def test_verifier_repairs_invalid_entity_role_with_llm_retry(tmp_path: Path, mon
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_MODEL", "gpt-5.4-mini")
-    monkeypatch.setattr("chemverify.search.httpx.Client", _RepairingVerifierClient)
+    monkeypatch.setattr("chemsearch.search.httpx.Client", _RepairingVerifierClient)
 
-    from chemverify.models import EvidenceBucket, PaperRecord, QueryAspect, QueryPlan, ScopeConstraints, VerifierRubric
-    from chemverify.search import SearchEngine
+    from chemsearch.models import EvidenceBucket, PaperRecord, QueryAspect, QueryPlan, ScopeConstraints, VerifierRubric
+    from chemsearch.search import SearchEngine
 
     settings = Settings.from_env(tmp_path)
     engine = SearchEngine(settings, LocalStore(settings))
@@ -1084,7 +1090,7 @@ def test_verifier_repairs_invalid_entity_role_with_llm_retry(tmp_path: Path, mon
         ],
     )
 
-    payload, usage = engine._verify_with_openai(plan, paper, {"entity": []})
+    payload, usage = engine._verify_with_openai(plan, paper, {"entity": []}, _RepairingVerifierClient())
     assert payload["entity_role"] == "dataset_or_benchmark"
     assert _RepairingVerifierClient.calls == 2
     assert usage.total_tokens == 30
@@ -1130,10 +1136,10 @@ def test_verifier_payload_preserves_bucket_semantics(tmp_path: Path, monkeypatch
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_MODEL", "gpt-5.4-mini")
-    monkeypatch.setattr("chemverify.search.httpx.Client", _RecordingVerifierClient)
+    monkeypatch.setattr("chemsearch.search.httpx.Client", _RecordingVerifierClient)
 
-    from chemverify.models import EvidenceBucket, EvidenceChunk, PaperRecord, QueryPlan, ScopeConstraints, VerifierRubric
-    from chemverify.search import SearchEngine
+    from chemsearch.models import EvidenceBucket, EvidenceChunk, PaperRecord, QueryPlan, ScopeConstraints, VerifierRubric
+    from chemsearch.search import SearchEngine
 
     settings = Settings.from_env(tmp_path)
     engine = SearchEngine(settings, LocalStore(settings))
@@ -1182,7 +1188,7 @@ def test_verifier_payload_preserves_bucket_semantics(tmp_path: Path, monkeypatch
         ]
     }
 
-    engine._verify_with_openai(plan, paper, evidence_pack)
+    engine._verify_with_openai(plan, paper, evidence_pack, _RecordingVerifierClient())
 
     assert _RecordingVerifierClient.last_user_payload is not None
     verifier_bucket = _RecordingVerifierClient.last_user_payload["evidence_buckets"]["bucket_1"]
@@ -1258,7 +1264,7 @@ def test_layout_parser_builds_sections_objects_and_drops_references(tmp_path: Pa
         encoding="utf-8",
     )
 
-    from chemverify.models import PaperRecord
+    from chemsearch.models import PaperRecord
 
     bundle = PDFParser(settings).parse(
         PaperRecord(
@@ -1330,7 +1336,7 @@ def test_layout_parser_keeps_image_without_caption_when_mineru_provides_image_pa
         encoding="utf-8",
     )
 
-    from chemverify.models import PaperRecord
+    from chemsearch.models import PaperRecord
 
     bundle = PDFParser(settings).parse(
         PaperRecord(
@@ -1394,7 +1400,7 @@ def test_layout_parser_does_not_consume_table_supplement_on_empty_block(tmp_path
         encoding="utf-8",
     )
 
-    from chemverify.models import PaperRecord
+    from chemsearch.models import PaperRecord
 
     bundle = PDFParser(settings).parse(
         PaperRecord(
@@ -1440,7 +1446,7 @@ def test_settings_loads_config_toml_and_env_override(tmp_path: Path, monkeypatch
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("CHEMVERIFY_PAPER_DENSE_MODEL", "env-paper-model")
+    monkeypatch.setenv("CHEMSEARCH_PAPER_DENSE_MODEL", "env-paper-model")
     settings = Settings.from_env(tmp_path)
 
     assert settings.pdf_parser_backend == "mineru_layout"
@@ -1474,11 +1480,11 @@ model = ""
 
 
 def test_index_builder_records_parse_failures_without_fallback(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("chemverify.encoders.SentenceTransformerEncoder.__init__", _fake_encoder_init)
-    monkeypatch.setattr("chemverify.encoders.SentenceTransformerEncoder.encode", _fake_encoder_encode)
+    monkeypatch.setattr("chemsearch.encoders.SentenceTransformerEncoder.__init__", _fake_encoder_init)
+    monkeypatch.setattr("chemsearch.encoders.SentenceTransformerEncoder.encode", _fake_encoder_encode)
     settings = Settings.from_env(tmp_path)
     store = LocalStore(settings)
-    from chemverify.models import PaperRecord
+    from chemsearch.models import PaperRecord
 
     store.save_raw_papers(
         [
@@ -1564,7 +1570,7 @@ def test_acl_download_timeout_becomes_readable_error(tmp_path: Path, monkeypatch
         def get(self, url: str):
             raise httpx.ConnectTimeout("timed out")
 
-    monkeypatch.setattr("chemverify.acl_anthology.httpx.Client", _TimeoutClient)
+    monkeypatch.setattr("chemsearch.acl_anthology.httpx.Client", _TimeoutClient)
 
     with pytest.raises(RuntimeError, match="paper=2025.acl-long.20"):
         ingestor._download_pdfs([listing])
@@ -1681,7 +1687,7 @@ def test_acl_ingestor_does_not_expand_long_or_short_to_full_main_family(tmp_path
 
 
 def test_normalized_phrase_match_respects_token_boundaries() -> None:
-    from chemverify.search import _contains_normalized_phrase
+    from chemsearch.search import _contains_normalized_phrase
 
     assert _contains_normalized_phrase("results on gaia benchmark", "gaia")
     assert _contains_normalized_phrase("results on gaia benchmark", "gaia benchmark")

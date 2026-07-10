@@ -1,5 +1,5 @@
 const STORAGE_KEYS = {
-  currentProjectId: 'chemverify.workspace.current_project_id',
+  currentProjectId: 'chemsearch.workspace.current_project_id',
 } as const;
 
 function canUseStorage(): boolean {

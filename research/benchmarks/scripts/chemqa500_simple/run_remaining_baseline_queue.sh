@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT_ROOT="/workspace/ChemVerify"
+PROJECT_ROOT="/workspace/ChemSearch"
 cd "$PROJECT_ROOT"
 
 RUN_TAG="${RUN_TAG:-20260424_chemqa500_remaining_baselines}"

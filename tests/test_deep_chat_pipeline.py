@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from chemverify.deep_chat.evidence import DeepChatEvidenceMaterializer
-from chemverify.models import ChunkRecord, ObjectRecord, PaperRecord, SectionRecord
+from chemsearch.deep_chat.evidence import DeepChatEvidenceMaterializer
+from chemsearch.models import ChunkRecord, ObjectRecord, PaperRecord, SectionRecord
 
 
 def test_evidence_materializer_builds_structured_units() -> None:

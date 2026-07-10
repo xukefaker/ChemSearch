@@ -2,7 +2,7 @@
 setlocal
 
 set "ROOT=%~dp0"
-set "CMD=%ROOT%.venv\Scripts\chemverify.exe"
+set "CMD=%ROOT%.venv\Scripts\chemsearch.exe"
 set "LOCAL_NODE=%ROOT%.local\node\current"
 
 if exist "%LOCAL_NODE%\node.exe" (
@@ -10,7 +10,7 @@ if exist "%LOCAL_NODE%\node.exe" (
 )
 
 if not exist "%CMD%" (
-  echo ChemVerify is not installed yet. Run:
+  echo ChemSearch is not installed yet. Run:
   echo powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
   exit /b 1
 )

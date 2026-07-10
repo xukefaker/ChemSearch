@@ -1,4 +1,4 @@
-"""ChemVerify application package."""
+"""ChemSearch application package."""
 
 __all__ = ["SearchEngine", "Settings"]
 

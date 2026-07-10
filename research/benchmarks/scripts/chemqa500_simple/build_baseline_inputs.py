@@ -151,15 +151,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build ChemQA500 baseline input assets.")
     parser.add_argument(
         "--package-root",
-        default="/workspace/ChemVerify/data/benchmarks/chemqa500_simple/package",
+        default="/workspace/ChemSearch/data/benchmarks/chemqa500_simple/package",
     )
     parser.add_argument(
         "--normalized-root",
-        default="/workspace/ChemVerify/data/search_current/normalized",
+        default="/workspace/ChemSearch/data/search_current/normalized",
     )
     parser.add_argument(
         "--output-root",
-        default="/workspace/ChemVerify/data/benchmarks/chemqa500_simple/baseline_inputs",
+        default="/workspace/ChemSearch/data/benchmarks/chemqa500_simple/baseline_inputs",
     )
     parser.add_argument("--topic", default="all")
     parser.add_argument("--min-passage-chars", type=int, default=80)

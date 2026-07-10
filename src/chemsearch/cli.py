@@ -328,7 +328,7 @@ def _run_until_exit(processes: list[subprocess.Popen[bytes]]) -> int:
 
 @contextmanager
 def _quiet_index_loggers():
-    logger_names = ["chemverify.indexer", "chemverify.mineru_pipeline"]
+    logger_names = ["chemsearch.indexer", "chemsearch.mineru_pipeline"]
     previous = {name: logging.getLogger(name).level for name in logger_names}
     try:
         for name in logger_names:
@@ -437,9 +437,9 @@ def init_project(force_env: bool = typer.Option(False, "--force-env", help="Over
             "# Default model for question answering.\n"
             "OPENAI_MODEL=gpt-4o-mini\n\n"
             "# Local storage for PDFs, parsed text, and indexes.\n"
-            "CHEMVERIFY_DATA_DIR=./data\n\n"
+            "CHEMSEARCH_DATA_DIR=./data\n\n"
             "# auto prefers CUDA or Apple MPS when PyTorch can use it, otherwise CPU.\n"
-            "CHEMVERIFY_DEVICE=auto\n",
+            "CHEMSEARCH_DEVICE=auto\n",
             encoding="utf-8",
         )
         typer.echo(f"Wrote {env_path}")
@@ -492,7 +492,7 @@ def doctor() -> None:
     console = Console()
     console.print(Panel(table, title=f"{app_name()} Doctor", border_style="cyan"))
     if not accelerated:
-        console.print("[yellow]No accelerator detected. ChemVerify can run on CPU, but indexing will be slow.[/]")
+        console.print("[yellow]No accelerator detected. ChemSearch can run on CPU, but indexing will be slow.[/]")
 
 
 @app.command("add-pdfs")
@@ -559,8 +559,8 @@ def index_library(
         if not source_papers:
             corpus_key = f"{settings.corpus.venue}/{settings.corpus.year}/{settings.corpus.track}"
             raise RuntimeError(
-                f"No PDFs are registered for {corpus_key}. Run `chemverify add-pdfs ./your-pdfs` "
-                "or `chemverify demo-chem` first."
+                f"No PDFs are registered for {corpus_key}. Run `chemsearch add-pdfs ./your-pdfs` "
+                "or `chemsearch demo-chem` first."
             )
 
         staged_settings = _staged_index_settings(settings, run_id, stage_parse=run_parse)
@@ -631,7 +631,7 @@ def web(
         raise typer.Exit(code=1)
     if not settings.search_current_manifest_path.exists():
         typer.echo(
-            "No online index found. Run `./chemverify index` first (Windows: `.\\chemverify.cmd index`).",
+            "No online index found. Run `./chemsearch index` first (Windows: `.\\chemsearch.cmd index`).",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -645,16 +645,16 @@ def web(
     if install_deps and not web_dir.joinpath("node_modules").exists():
         subprocess.run([npm_path, "--prefix", str(web_dir), "install"], cwd=root, env=env, check=True)
 
-    env["CHEMVERIFY_ROOT"] = str(root)
-    env["CHEMVERIFY_API_BASE_URL"] = f"http://127.0.0.1:{api_port}/api"
-    env.setdefault("NEXT_PUBLIC_CHEMVERIFY_APP_NAME", app_name())
-    env.setdefault("NEXT_PUBLIC_CHEMVERIFY_APP_TAGLINE", app_tagline())
+    env["CHEMSEARCH_ROOT"] = str(root)
+    env["CHEMSEARCH_API_BASE_URL"] = f"http://127.0.0.1:{api_port}/api"
+    env.setdefault("NEXT_PUBLIC_CHEMSEARCH_APP_NAME", app_name())
+    env.setdefault("NEXT_PUBLIC_CHEMSEARCH_APP_TAGLINE", app_tagline())
     api_process = subprocess.Popen(
         [
             sys.executable,
             "-m",
             "uvicorn",
-            "chemverify.api.app:create_app",
+            "chemsearch.api.app:create_app",
             "--factory",
             "--host",
             host,
@@ -728,7 +728,7 @@ def demo_chem(
                 url=str(item["url"]),
                 pdf_url=str(item["pdf_url"]),
                 local_pdf_path=str(local_pdf.resolve()),
-                source="chemverify_demo",
+                source="chemsearch_demo",
                 abstract=str(item["abstract"]),
                 keywords=extract_keywords(text_for_keywords, limit=12),
                 metadata={"demo_url": item["url"], "downloaded_at": now_iso()},
@@ -749,7 +749,7 @@ def demo_chem(
             indent=2,
         )
     )
-    typer.echo("Next: run `./chemverify index`, then `./chemverify web` (Windows: `.\\chemverify.cmd ...`).")
+    typer.echo("Next: run `./chemsearch index`, then `./chemsearch web` (Windows: `.\\chemsearch.cmd ...`).")
 
 
 @app.command("demo-acl", hidden=True)
@@ -773,7 +773,7 @@ def demo_acl(
     _write_search_current_scope([settings.corpus])
     typer.echo(summary.model_dump_json(indent=2))
     typer.echo(f"Downloaded PDFs are under {settings.pdf_dir / 'acl' / str(year) / corpus_track}")
-    typer.echo("Next: run `./chemverify index`, then `./chemverify web` (Windows: `.\\chemverify.cmd ...`).")
+    typer.echo("Next: run `./chemsearch index`, then `./chemsearch web` (Windows: `.\\chemsearch.cmd ...`).")
 
 
 @app.command("ingest-acl", hidden=True)

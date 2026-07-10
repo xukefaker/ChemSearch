@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from chemverify.models import ObjectRecord, PaperRecord
-from chemverify.presentation import (
+from chemsearch.models import ObjectRecord, PaperRecord
+from chemsearch.presentation import (
     build_matched_sections_summary,
     extract_author_metadata,
     structure_rationale_text,

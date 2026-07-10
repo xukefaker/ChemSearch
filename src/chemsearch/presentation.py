@@ -24,7 +24,7 @@ _DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
 _ARXIV_PATTERN = re.compile(r"\barXiv:(\d{4}\.\d{4,5}(?:v\d+)?)\b|\b(\d{4}\.\d{4,5}(?:v\d+)?)\b")
 _URL_PATTERN = re.compile(r"https?://\S+")
 _REFERENCE_HEADING_PATTERN = re.compile(r"(?im)^(?:#{1,6}\s*)?(references|bibliography|works cited)\s*$")
-_AUTHOR_MARKER_SYMBOLS = "*†‡§¶♠♣♡◊"
+_AUTHOR_MARKER_SYMBOLS = "*†‡§¶♠♣♡◊♭"
 _DIGIT_AFFILIATION_START_PATTERN = re.compile(r"(?<![A-Za-z])(?P<marker>\d+)\s*(?=[A-Z])")
 _NEXT_MARKDOWN_HEADING_PATTERN = re.compile(r"(?m)^#{1,6}\s+\S.*$")
 _REFERENCE_CONTINUATION_PREFIXES = (
@@ -289,8 +289,6 @@ def extract_author_metadata(
         return [], [], []
 
     candidate_objects = _select_author_objects(authors, objects)
-    if not candidate_objects:
-        return authors, [], [StructuredAuthor(name=author) for author in authors]
 
     direct_affiliations: dict[str, list[str]] = {}
     for obj in candidate_objects:
@@ -301,7 +299,11 @@ def extract_author_metadata(
         if affiliation:
             direct_affiliations[matches[0]] = [affiliation]
 
-    candidate_text = normalize_whitespace(" ".join(obj.text for obj in candidate_objects if normalize_whitespace(obj.text)))
+    candidate_text = normalize_whitespace(
+        " ".join(obj.text for obj in candidate_objects if normalize_whitespace(obj.text)) or paper.text
+    )
+    if not candidate_text:
+        return authors, [], [StructuredAuthor(name=author) for author in authors]
     marker_inventory = _collect_markers_used_by_authors(authors, candidate_text)
     affiliation_by_marker = _extract_affiliation_map(candidate_text, allowed_markers=marker_inventory)
     fallback_affiliations = (
@@ -431,9 +433,9 @@ def _select_author_objects(authors: list[str], objects: list[ObjectRecord]) -> l
     for obj in objects:
         if obj.object_type not in {"text_block", "list_block"}:
             continue
-        if obj.page_idx != 1 or len(obj.bbox) != 4:
+        if obj.page_idx != 1:
             continue
-        if float(obj.bbox[1]) > _TOP_AUTHOR_REGION_MAX_Y:
+        if len(obj.bbox) == 4 and float(obj.bbox[1]) > _TOP_AUTHOR_REGION_MAX_Y:
             continue
         text = normalize_whitespace(obj.text)
         if not text or text.lower().startswith("abstract"):
@@ -442,7 +444,13 @@ def _select_author_objects(authors: list[str], objects: list[ObjectRecord]) -> l
         if score <= 0.0:
             continue
         candidates.append((score, obj))
-    candidates.sort(key=lambda item: (float(item[1].bbox[1]), float(item[1].bbox[0]), -item[0]))
+    candidates.sort(
+        key=lambda item: (
+            float(item[1].bbox[1]) if len(item[1].bbox) == 4 else 0.0,
+            float(item[1].bbox[0]) if len(item[1].bbox) == 4 else 0.0,
+            -item[0],
+        )
+    )
     return [item[1] for item in candidates[:_MAX_AUTHOR_OBJECTS]]
 
 

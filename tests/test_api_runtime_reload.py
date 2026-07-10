@@ -8,9 +8,9 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from chemverify.config import CorpusSpec, Settings
-from chemverify.models import QueryPlan, SearchResponse, SearchTrace
-from chemverify.storage import LocalStore
+from chemsearch.config import CorpusSpec, Settings
+from chemsearch.models import QueryPlan, SearchResponse, SearchTrace
+from chemsearch.storage import LocalStore
 
 
 class _NoopSearchEngine:
@@ -69,7 +69,14 @@ def _write_search_current_snapshot(root_dir: Path, *, build_id: str, papers: int
         json.dumps(
             {
                 "build_id": build_id,
-                "corpora": [],
+                "corpora": [
+                    {
+                        "corpus": "chemqa40/2026/all",
+                        "papers": papers,
+                        "chunks": papers * 10,
+                        "deep_chat_evidence_units": 0,
+                    }
+                ],
                 "counts": {"papers": papers, "chunks": papers * 10},
             },
             ensure_ascii=False,
@@ -101,8 +108,8 @@ model = "gpt-5.4-mini"
     """,
         encoding="utf-8",
     )
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(tmp_path / "data"))
-    app_module = importlib.import_module("chemverify.api.app")
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(tmp_path / "data"))
+    app_module = importlib.import_module("chemsearch.api.app")
     monkeypatch.setattr(app_module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(app_module, "SearchEngine", _NoopSearchEngine)
     monkeypatch.setattr(app_module, "DeepChatService", _NoopDeepChatService)
@@ -131,8 +138,8 @@ model = "gpt-5.4-mini"
 """,
         encoding="utf-8",
     )
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(tmp_path / "data"))
-    app_module = importlib.import_module("chemverify.api.app")
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(tmp_path / "data"))
+    app_module = importlib.import_module("chemsearch.api.app")
     monkeypatch.setattr(app_module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(app_module, "SearchEngine", _SnapshotSearchEngine)
     monkeypatch.setattr(app_module, "DeepChatService", _NoopDeepChatService)
@@ -161,8 +168,8 @@ model = "gpt-5.4-mini"
 """,
         encoding="utf-8",
     )
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(tmp_path / "data"))
-    app_module = importlib.import_module("chemverify.api.app")
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(tmp_path / "data"))
+    app_module = importlib.import_module("chemsearch.api.app")
     monkeypatch.setattr(app_module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(app_module, "SearchEngine", _JobSearchEngine)
     monkeypatch.setattr(app_module, "DeepChatService", _NoopDeepChatService)
@@ -171,7 +178,12 @@ model = "gpt-5.4-mini"
 
     app = app_module.create_app()
     with TestClient(app) as client:
-        created = client.post("/api/search/jobs", json={"query": "find gaia papers", "top_k": 5})
+        project = client.post("/api/projects", json={"title": "Runtime Reload"})
+        assert project.status_code == 200
+        created = client.post(
+            "/api/search/jobs",
+            json={"project_id": project.json()["project_id"], "query": "find gaia papers", "top_k": 5},
+        )
         assert created.status_code == 200
         job_id = created.json()["job_id"]
 
@@ -197,8 +209,8 @@ model = "gpt-5.4-mini"
 """,
         encoding="utf-8",
     )
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(tmp_path / "data"))
-    app_module = importlib.import_module("chemverify.api.app")
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(tmp_path / "data"))
+    app_module = importlib.import_module("chemsearch.api.app")
     monkeypatch.setattr(app_module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(app_module, "SearchEngine", _NoopSearchEngine)
     monkeypatch.setattr(app_module, "DeepChatService", _NoopDeepChatService)
@@ -227,8 +239,8 @@ model = "gpt-5.4-mini"
 """,
         encoding="utf-8",
     )
-    monkeypatch.setenv("CHEMVERIFY_DATA_DIR", str(tmp_path / "data"))
-    app_module = importlib.import_module("chemverify.api.app")
+    monkeypatch.setenv("CHEMSEARCH_DATA_DIR", str(tmp_path / "data"))
+    app_module = importlib.import_module("chemsearch.api.app")
     monkeypatch.setattr(app_module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(app_module, "SearchEngine", _SnapshotSearchEngine)
     monkeypatch.setattr(app_module, "DeepChatService", _TrackCloseDeepChatService)

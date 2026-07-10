@@ -158,7 +158,7 @@ function repoRoot() {
 }
 
 export function workbenchDataRoot() {
-  return process.env.CHEMVERIFY_WORKBENCH_DATA_DIR || join(repoRoot(), 'data', 'workbench');
+  return process.env.CHEMSEARCH_WORKBENCH_DATA_DIR || join(repoRoot(), 'data', 'workbench');
 }
 
 function dataPath(name: string) {
@@ -536,8 +536,8 @@ function runtimeManifest(): RuntimeManifest | null {
   const explicit = readJson<RuntimeManifest | null>('runtime_manifest.json', null);
   if (explicit?.normalized_dir) return explicit;
 
-  const root = process.env.CHEMVERIFY_ROOT ? resolve(process.env.CHEMVERIFY_ROOT) : repoRoot();
-  const dataDir = process.env.CHEMVERIFY_DATA_DIR ? resolve(root, process.env.CHEMVERIFY_DATA_DIR) : join(root, 'data');
+  const root = process.env.CHEMSEARCH_ROOT ? resolve(process.env.CHEMSEARCH_ROOT) : repoRoot();
+  const dataDir = process.env.CHEMSEARCH_DATA_DIR ? resolve(root, process.env.CHEMSEARCH_DATA_DIR) : join(root, 'data');
   const normalizedDir = join(dataDir, 'search_current', 'normalized');
   if (!existsSync(join(normalizedDir, 'objects.jsonl'))) return null;
 

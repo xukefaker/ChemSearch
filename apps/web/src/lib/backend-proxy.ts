@@ -4,7 +4,7 @@ const DEFAULT_BACKEND_API_BASE_URL = "http://127.0.0.1:4001/api";
 
 function getBackendApiBaseUrl(): string {
   return (
-    process.env.CHEMVERIFY_API_BASE_URL?.replace(/\/$/, "") ??
+    process.env.CHEMSEARCH_API_BASE_URL?.replace(/\/$/, "") ??
     DEFAULT_BACKEND_API_BASE_URL
   );
 }

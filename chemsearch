@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CMD="$ROOT/.venv/bin/chemverify"
+CMD="$ROOT/.venv/bin/chemsearch"
 LOCAL_NODE_BIN="$ROOT/.local/node/current/bin"
 
 if [[ -x "$LOCAL_NODE_BIN/node" ]]; then
@@ -10,7 +10,7 @@ if [[ -x "$LOCAL_NODE_BIN/node" ]]; then
 fi
 
 if [[ ! -x "$CMD" ]]; then
-  printf 'ChemVerify is not installed yet. Run ./scripts/install.sh first.\n' >&2
+  printf 'ChemSearch is not installed yet. Run ./scripts/install.sh first.\n' >&2
   exit 1
 fi
 
