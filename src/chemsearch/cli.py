@@ -142,6 +142,34 @@ def _env_with_local_node(root: Path) -> dict[str, str]:
     return env
 
 
+def _web_source_fingerprint(web_dir: Path) -> str:
+    digest = hashlib.sha256()
+    candidates = [
+        web_dir / "package.json",
+        web_dir / "package-lock.json",
+        web_dir / "next.config.ts",
+        web_dir / "postcss.config.mjs",
+        web_dir / "tsconfig.json",
+    ]
+    candidates.extend(sorted(path for path in web_dir.joinpath("src").rglob("*") if path.is_file()))
+    for path in candidates:
+        if not path.exists():
+            continue
+        digest.update(path.relative_to(web_dir).as_posix().encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _ensure_web_build(npm_path: str, root: Path, web_dir: Path, env: dict[str, str]) -> None:
+    fingerprint = _web_source_fingerprint(web_dir)
+    marker = web_dir / ".next" / "chemsearch-build.sha256"
+    build_id = web_dir / ".next" / "BUILD_ID"
+    if build_id.exists() and marker.exists() and marker.read_text(encoding="utf-8").strip() == fingerprint:
+        return
+    subprocess.run([npm_path, "--prefix", str(web_dir), "run", "build"], cwd=root, env=env, check=True)
+    marker.write_text(f"{fingerprint}\n", encoding="utf-8")
+
+
 def _ensure_port_free(host: str, port: int, label: str) -> None:
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     with socket.socket(family, socket.SOCK_STREAM) as sock:
@@ -676,6 +704,7 @@ def web(
     env["CHEMSEARCH_API_BASE_URL"] = f"http://127.0.0.1:{api_port}/api"
     env.setdefault("NEXT_PUBLIC_CHEMSEARCH_APP_NAME", app_name())
     env.setdefault("NEXT_PUBLIC_CHEMSEARCH_APP_TAGLINE", app_tagline())
+    _ensure_web_build(npm_path, root, web_dir, env)
     api_process = subprocess.Popen(
         [
             sys.executable,
@@ -692,7 +721,7 @@ def web(
         env=env,
     )
     web_process = subprocess.Popen(
-        [npm_path, "--prefix", str(web_dir), "run", "dev", "--", "--hostname", host, "--port", str(web_port)],
+        [npm_path, "--prefix", str(web_dir), "run", "start", "--", "--hostname", host, "--port", str(web_port)],
         cwd=root,
         env=env,
     )

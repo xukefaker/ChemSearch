@@ -126,4 +126,4 @@ CHEMSEARCH_SPLADE_MODEL=naver/splade-cocondenser-ensembledistil
 - `CUDA available=False`: CPU still works, but indexing is slower. If you expected an NVIDIA GPU, reinstall after checking your driver.
 - `OPENAI_API_KEY=missing`: edit `.env` and set your key.
 - PowerShell blocks scripts: use the installer command shown in the Windows section. Its bypass applies only to that command.
-- First `web` run is slow: frontend dependencies are installed under `apps/web/node_modules/`.
+- First `web` run is slower: frontend dependencies are installed under `apps/web/node_modules/`, then a production build is created and reused until the frontend changes.

@@ -996,6 +996,9 @@ export default function WorkbenchPage() {
                   >
                     <input
                       ref={fileInputRef}
+                      id="paper-pdf-upload"
+                      name="paper-pdf-upload"
+                      aria-label="Upload PDF papers"
                       type="file"
                       accept="application/pdf,.pdf"
                       multiple
