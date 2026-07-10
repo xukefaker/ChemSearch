@@ -143,8 +143,8 @@ type RawPaperRecord = {
 const defaultSettings: WorkbenchSettings = {
   library_path: '',
   retrieval_method: 'hybrid_bm25_colbertv2',
-  qa_model: 'gpt-5.4-mini',
-  qa_base_url: '',
+  qa_model: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
+  qa_base_url: process.env.OPENAI_BASE_URL?.trim() || '',
   qa_api_key: '',
   max_context_tokens: 128000,
   qa_timeout_seconds: 120,
@@ -216,7 +216,11 @@ function safeFileStem(fileName: string) {
 }
 
 function settingsWithoutSecret(settings: WorkbenchSettings, secrets: Secrets): WorkbenchSettings {
-  return { ...settings, qa_api_key: '', qa_api_key_set: Boolean(secrets.qa_api_key) };
+  return {
+    ...settings,
+    qa_api_key: '',
+    qa_api_key_set: Boolean(secrets.qa_api_key || process.env.OPENAI_API_KEY || process.env.DEEPSEEK_API_KEY),
+  };
 }
 
 export function listPapers() {

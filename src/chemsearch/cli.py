@@ -418,6 +418,30 @@ def _publish_mineru_artifacts(staged_settings: Settings, final_settings: Setting
         final_settings.mineru_failure_manifest_path.unlink(missing_ok=True)
 
 
+def _rewrite_published_image_paths(staged_settings: Settings, final_settings: Settings) -> None:
+    objects_path = staged_settings.normalized_dir / "objects.jsonl"
+    if not objects_path.exists():
+        return
+
+    staged_root = staged_settings.mineru_output_dir.resolve()
+    final_root = final_settings.mineru_output_dir.resolve()
+    rewritten: list[str] = []
+    for line in objects_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        image_path = payload.get("image_path")
+        if image_path:
+            try:
+                relative_path = Path(image_path).resolve().relative_to(staged_root)
+            except ValueError:
+                pass
+            else:
+                payload["image_path"] = str(final_root / relative_path)
+        rewritten.append(json.dumps(payload, ensure_ascii=False))
+    objects_path.write_text("\n".join(rewritten) + ("\n" if rewritten else ""), encoding="utf-8")
+
+
 @app.command("init")
 def init_project(force_env: bool = typer.Option(False, "--force-env", help="Overwrite an existing .env file.")) -> None:
     root = _project_root()
@@ -599,6 +623,7 @@ def index_library(
             progress.publish_start()
             if run_parse:
                 _publish_mineru_artifacts(staged_settings, settings, selected_papers)
+                _rewrite_published_image_paths(staged_settings, settings)
             _publish_current_release(staged_settings, settings)
             _write_completed_index_state(settings, summary)
             manifest = rebuild_search_current(_project_root(), corpora=[settings.corpus])
