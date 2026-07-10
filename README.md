@@ -3,6 +3,7 @@
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![uv](https://img.shields.io/badge/env-uv-4B32C3)
 ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 ChemSearch is an interactive system for search and question answering over local chemistry paper libraries.
 
@@ -120,6 +121,10 @@ CHEMSEARCH_SPLADE_MODEL=naver/splade-cocondenser-ensembledistil
 ## Privacy and document rights
 
 Corpus preparation, indexing, and retrieval run locally. When an API-hosted QA model is selected, ChemSearch sends the user query and content from the selected paper to the configured model provider. Use a locally hosted model when documents must remain on the device, and process only PDFs that you are authorized to use. ChemSearch stores uploaded PDFs in the local deployment and does not publish them.
+
+## License
+
+The ChemSearch source code is released under the [MIT License](LICENSE). Third-party packages and model checkpoints retain their own licenses; see [Third-Party Notices](THIRD_PARTY_NOTICES.md).
 
 ## Troubleshooting
 
