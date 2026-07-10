@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server';
-import { listLibraryJobs } from '@/lib/workbench-store';
+import { proxyToBackend } from '@/lib/backend-proxy';
 
 export function GET() {
-  return NextResponse.json({ jobs: listLibraryJobs() });
+  return proxyToBackend('/workbench/library/jobs');
 }

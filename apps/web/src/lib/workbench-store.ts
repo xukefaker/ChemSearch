@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { basename, extname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 export type RetrievalMethod =
   | 'bm25_full_text'
@@ -45,29 +44,6 @@ export type LibraryJob = {
   updated_at?: string;
 };
 
-export type SearchJob = {
-  job_id: string;
-  query: string;
-  retrieval_method: RetrievalMethod;
-  qa_model: QaModel;
-  corpus_scope: string;
-  status: 'running' | 'completed' | 'failed';
-  stage: string;
-  message: string;
-  progress: number;
-  created_at: string;
-  updated_at: string;
-};
-
-export type SearchResult = LibraryPaper & {
-  rank: number;
-  score: number;
-  retrieval_method: RetrievalMethod;
-  matched_terms: string[];
-  reason: string;
-  preview_image_url?: string | null;
-};
-
 export type EvidenceUnit = {
   evidence_id: string;
   evidence_type?: string;
@@ -109,25 +85,6 @@ type Secrets = {
   qa_api_key?: string;
 };
 
-type UploadInput = {
-  fileName: string;
-  data: Buffer;
-};
-
-export type RawSearchResult = {
-  paper_id?: string;
-  rank?: number;
-  score?: number;
-  title?: string;
-  authors?: string[];
-  year?: number;
-  venue?: string;
-  abstract?: string;
-  matched_terms?: string[];
-  reason?: string;
-  preview_image_url?: string | null;
-};
-
 type RawPaperRecord = {
   paper_id?: string;
   title?: string;
@@ -167,8 +124,6 @@ function dataPath(name: string) {
 
 function ensureStore() {
   mkdirSync(workbenchDataRoot(), { recursive: true });
-  mkdirSync(dataPath('uploads'), { recursive: true });
-  mkdirSync(dataPath('search_results'), { recursive: true });
 }
 
 function readJson<T>(name: string, fallback: T): T {
@@ -206,15 +161,6 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function stemFromFileName(fileName: string) {
-  const base = basename(fileName).replace(extname(fileName), '');
-  return base.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Uploaded paper';
-}
-
-function safeFileStem(fileName: string) {
-  return stemFromFileName(fileName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64) || 'paper';
-}
-
 function settingsWithoutSecret(settings: WorkbenchSettings, secrets: Secrets): WorkbenchSettings {
   return {
     ...settings,
@@ -225,26 +171,6 @@ function settingsWithoutSecret(settings: WorkbenchSettings, secrets: Secrets): W
 
 export function listPapers() {
   return mergeRuntimePapers(readJson<LibraryPaper[]>('library.json', []));
-}
-
-export function writePapers(papers: LibraryPaper[]) {
-  writeJson('library.json', papers);
-}
-
-export function listLibraryJobs() {
-  return readJson<LibraryJob[]>('jobs.json', []);
-}
-
-export function writeLibraryJobs(jobs: LibraryJob[]) {
-  writeJson('jobs.json', jobs);
-}
-
-export function listSearchJobs() {
-  return readJson<SearchJob[]>('search_jobs.json', []);
-}
-
-export function writeSearchJobs(jobs: SearchJob[]) {
-  writeJson('search_jobs.json', jobs);
 }
 
 export function getSettings() {
@@ -284,251 +210,6 @@ export function saveSettingsPatch(payload: Partial<WorkbenchSettings>) {
   writeJson('settings.json', next);
   writeJson('secrets.local.json', nextSecrets);
   return settingsWithoutSecret(next, nextSecrets);
-}
-
-export function createUploadJob(input: UploadInput): LibraryJob {
-  if (!input.fileName.toLowerCase().endsWith('.pdf')) {
-    throw new Error('Only PDF files are supported.');
-  }
-  if (!input.data.byteLength) {
-    throw new Error('The uploaded PDF is empty.');
-  }
-  const hash = createHash('sha256').update(input.data).digest('hex');
-  const paperId = `local-${hash.slice(0, 16)}`;
-  const uploadName = `${safeFileStem(input.fileName)}-${hash.slice(0, 10)}.pdf`;
-  const uploadPath = dataPath(join('uploads', uploadName));
-  writeFileSync(uploadPath, input.data);
-
-  const timestamp = nowIso();
-  const papers = listPapers();
-  const existing = papers.find((paper) => paper.content_hash === hash || paper.paper_id === paperId);
-  const paper: LibraryPaper = {
-    ...(existing ?? {
-      authors: [],
-      year: 0,
-      venue: '',
-      pages: 0,
-      figures: 0,
-      tags: [],
-      abstract: '',
-      preview_label: '',
-      uploaded_at: timestamp,
-    }),
-    paper_id: paperId,
-    title: existing?.title || stemFromFileName(input.fileName),
-    status: existing?.status === 'ready' ? 'ready' : 'queued',
-    updated_at: timestamp,
-    file_name: input.fileName,
-    source_path: uploadPath,
-    content_hash: hash,
-  };
-  writePapers([paper, ...papers.filter((item) => item.paper_id !== paperId && item.content_hash !== hash)]);
-
-  const job: LibraryJob = {
-    job_id: `upload-${Date.now()}`,
-    kind: 'upload',
-    file_name: input.fileName,
-    status: existing?.status === 'ready' ? 'ready' : 'queued',
-    progress: existing?.status === 'ready' ? 100 : 0,
-    message: existing?.status === 'ready' ? 'This PDF is already indexed.' : 'Uploaded. Waiting for the indexing service.',
-    paper_id: paperId,
-    created_at: timestamp,
-    updated_at: timestamp,
-  };
-  writeLibraryJobs([job, ...listLibraryJobs()].slice(0, 50));
-  return job;
-}
-
-export function requeueFailedIndexing() {
-  const timestamp = nowIso();
-  const papers = listPapers();
-  const retryPapers = papers.filter((paper) => paper.status === 'failed' && paper.source_path);
-  if (!retryPapers.length) return { queued: 0 };
-
-  const retryIds = new Set(retryPapers.map((paper) => paper.paper_id));
-  writePapers(
-    papers.map((paper) =>
-      retryIds.has(paper.paper_id)
-        ? { ...paper, status: 'queued' as PaperStatus, error_message: undefined, updated_at: timestamp }
-        : paper,
-    ),
-  );
-
-  const retryJobs = retryPapers.map((paper) => ({
-    job_id: `retry-${paper.paper_id}-${Date.now()}`,
-    kind: 'index' as const,
-    file_name: paper.file_name || `${paper.paper_id}.pdf`,
-    status: 'queued' as const,
-    progress: 0,
-    message: 'Queued for re-indexing.',
-    paper_id: paper.paper_id,
-    created_at: timestamp,
-    updated_at: timestamp,
-  }));
-  writeLibraryJobs([...retryJobs, ...listLibraryJobs()].slice(0, 50));
-  return { queued: retryJobs.length };
-}
-
-export function createSearchJob(input: { query: string; retrieval_method?: RetrievalMethod; qa_model?: QaModel; corpus_scope?: string }): SearchJob {
-  const settings = getSettings();
-  const timestamp = nowIso();
-  const job: SearchJob = {
-    job_id: `search-${Date.now()}`,
-    query: input.query,
-    retrieval_method: input.retrieval_method ?? settings.retrieval_method,
-    qa_model: input.qa_model ?? settings.qa_model,
-    corpus_scope: input.corpus_scope ?? 'ready-papers',
-    status: 'running',
-    stage: 'Retrieving papers',
-    message: 'Running retrieval over the indexed local library.',
-    progress: 25,
-    created_at: timestamp,
-    updated_at: timestamp,
-  };
-  writeSearchJobs([job, ...listSearchJobs()].slice(0, 50));
-  return job;
-}
-
-export function completeSearchJob(jobId: string) {
-  const jobs = listSearchJobs();
-  const next = jobs.map((job) =>
-    job.job_id === jobId
-      ? { ...job, status: 'completed' as const, stage: 'Completed', message: 'Search completed.', progress: 100, updated_at: nowIso() }
-      : job,
-  );
-  writeSearchJobs(next);
-  return next.find((job) => job.job_id === jobId) ?? null;
-}
-
-export function failSearchJob(jobId: string, message: string) {
-  const jobs = listSearchJobs();
-  const next = jobs.map((job) =>
-    job.job_id === jobId
-      ? { ...job, status: 'failed' as const, stage: 'Search failed', message, progress: 100, updated_at: nowIso() }
-      : job,
-  );
-  writeSearchJobs(next);
-  return next.find((job) => job.job_id === jobId) ?? null;
-}
-
-export function getSearchJob(jobId: string) {
-  return listSearchJobs().find((job) => job.job_id === jobId) ?? null;
-}
-
-export function searchJobStatus(job: SearchJob) {
-  if (job.status === 'running') {
-    const elapsedMs = Date.now() - Date.parse(job.created_at);
-    const progress = Math.min(100, Math.max(job.progress, Math.floor(elapsedMs / 28)));
-    if (progress >= 100) {
-      return {
-        job_id: job.job_id,
-        status: 'completed' as const,
-        stage: 'Completed',
-        message: 'Search completed.',
-        progress: 100,
-        created_at: job.created_at,
-      };
-    }
-    const stage = progress < 45 ? 'Reading query' : progress < 80 ? 'Ranking local papers' : 'Preparing result cards';
-    return {
-      job_id: job.job_id,
-      status: 'running' as const,
-      stage,
-      message: stage,
-      progress,
-      created_at: job.created_at,
-    };
-  }
-  return {
-    job_id: job.job_id,
-    status: job.status,
-    stage: job.stage,
-    message: job.message,
-    progress: job.progress,
-    created_at: job.created_at,
-  };
-}
-
-export function demoRankedResults(job: SearchJob): RawSearchResult[] {
-  const boostByMethod: Record<RetrievalMethod, number[]> = {
-    bm25_full_text: [0.91, 0.86, 0.78, 0.63, 0.58],
-    colbertv2: [0.89, 0.84, 0.82, 0.61, 0.55],
-    spladepp: [0.87, 0.79, 0.76, 0.68, 0.57],
-    hybrid_bm25_colbertv2: [0.96, 0.88, 0.83, 0.69, 0.61],
-    hybrid_bm25_spladepp: [0.94, 0.87, 0.81, 0.71, 0.60],
-  };
-
-  return listPapers()
-    .filter((paper) => paper.status === 'ready')
-    .map((paper, index) => ({
-      paper_id: paper.paper_id,
-      rank: index + 1,
-      score: boostByMethod[job.retrieval_method][index] ?? Math.max(0.25, 0.55 - index * 0.03),
-      matched_terms: paper.tags.slice(0, 3),
-      reason:
-        paper.title.toLowerCase().includes('co2') || paper.title.toLowerCase().includes('water oxidation')
-          ? 'Matches the chemistry query and is available for paper-level QA.'
-          : 'Shares material or reaction evidence with the query.',
-    }))
-    .sort((left, right) => Number(right.score ?? 0) - Number(left.score ?? 0))
-    .map((item, index) => ({ ...item, rank: index + 1 }));
-}
-
-export function retrievalLabel(method: RetrievalMethod): string {
-  return {
-    bm25_full_text: 'BM25 full text',
-    colbertv2: 'ColBERTv2',
-    spladepp: 'SPLADE++',
-    hybrid_bm25_colbertv2: 'Hybrid BM25 + ColBERTv2',
-    hybrid_bm25_spladepp: 'Hybrid BM25 + SPLADE++',
-  }[method];
-}
-
-export function writeSearchResults(job: SearchJob, rawResults: RawSearchResult[]) {
-  const papersById = new Map(listPapers().map((paper) => [paper.paper_id, paper]));
-  const previewImagesByPaperId = previewImageUrlsByPaperId();
-  const results = rawResults
-    .filter((item): item is RawSearchResult & { paper_id: string } => Boolean(item.paper_id))
-    .map((item, index) => {
-      const base = papersById.get(item.paper_id) ?? {
-        paper_id: item.paper_id,
-        title: item.title || item.paper_id,
-        authors: item.authors || [],
-        year: item.year || 0,
-        venue: item.venue || '',
-        pages: 0,
-        figures: 0,
-        status: 'ready' as PaperStatus,
-        tags: [],
-        updated_at: nowIso(),
-        abstract: item.abstract || '',
-        preview_label: '',
-      };
-      return {
-        ...base,
-        title: item.title || base.title,
-        authors: item.authors || base.authors,
-        year: item.year || base.year,
-        venue: item.venue || base.venue,
-        abstract: item.abstract || base.abstract,
-        rank: Number(item.rank || index + 1),
-        score: Number(item.score || 0),
-        retrieval_method: job.retrieval_method,
-        matched_terms: item.matched_terms || [],
-        reason: item.reason || 'Ranked by the selected retrieval backend.',
-        preview_image_url: previewImagesByPaperId.get(item.paper_id) || item.preview_image_url || null,
-      } satisfies SearchResult;
-    });
-  writeJson(join('search_results', `${job.job_id}.json`), results);
-  return results;
-}
-
-export function rankedResults(job: SearchJob): SearchResult[] {
-  const previewImagesByPaperId = previewImageUrlsByPaperId();
-  return readJson<SearchResult[]>(join('search_results', `${job.job_id}.json`), []).map((result) => ({
-    ...result,
-    preview_image_url: previewImagesByPaperId.get(result.paper_id) || result.preview_image_url || null,
-  }));
 }
 
 type RuntimeManifest = {
@@ -630,52 +311,6 @@ type RawObjectRecord = {
   html?: string;
   image_path?: string | null;
 };
-
-function paperImageUrl(paperId: string, imageName: string) {
-  return `/api/papers/${encodeURIComponent(paperId)}/images/${encodeURIComponent(imageName)}`;
-}
-
-function previewImageUrlsByPaperId() {
-  const urls = new Map<string, string>();
-  const manifest = runtimeManifest();
-  const objectPath = manifest?.normalized_dir ? join(manifest.normalized_dir, 'objects.jsonl') : '';
-  if (!objectPath) return urls;
-
-  const records = readJsonl<RawObjectRecord>(objectPath);
-  const imageCandidates = records
-    .filter((record) => {
-      if (!record.paper_id || record.object_type !== 'figure_block' || !record.image_path) return false;
-      return existsSync(record.image_path);
-    })
-    .map((record) => {
-      const imageName = basename(record.image_path as string);
-      return {
-        paper_id: record.paper_id as string,
-        imageName,
-        page_idx: record.page_idx,
-        ordinal: record.ordinal,
-        preferred:
-          Boolean(record.caption?.trim()) ||
-          (Array.isArray(record.bbox) && record.bbox.length === 4
-            ? Math.max(0, Number(record.bbox[2]) - Number(record.bbox[0])) *
-                Math.max(0, Number(record.bbox[3]) - Number(record.bbox[1])) >=
-              5000
-            : false),
-      };
-    })
-    .sort(
-      (left, right) =>
-        Number(right.preferred) - Number(left.preferred) ||
-        Number(left.page_idx || 1) - Number(right.page_idx || 1) ||
-        Number(left.ordinal || 0) - Number(right.ordinal || 0),
-    );
-
-  for (const candidate of imageCandidates) {
-    if (urls.has(candidate.paper_id)) continue;
-    urls.set(candidate.paper_id, paperImageUrl(candidate.paper_id, candidate.imageName));
-  }
-  return urls;
-}
 
 function normalizeEvidenceText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();

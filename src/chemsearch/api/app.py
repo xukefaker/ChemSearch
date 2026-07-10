@@ -23,7 +23,9 @@ from .routes.papers import router as papers_router
 from .routes.projects import router as projects_router
 from .routes.search import router as search_router
 from .routes.traces import router as traces_router
+from .routes.workbench import router as workbench_router
 from ..branding import app_name
+from ..workbench_runtime import WorkbenchRuntime
 
 
 @dataclass(slots=True)
@@ -265,14 +267,12 @@ PROJECT_ROOT = resolve_project_root()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     service_manager = AppServiceManager(PROJECT_ROOT)
-    services = service_manager.get_services()
-    load_engine = getattr(services.engine, "load", None)
-    if callable(load_engine):
-        load_engine()
     app.state.service_manager = service_manager
+    app.state.workbench_runtime = WorkbenchRuntime(PROJECT_ROOT)
     try:
         yield
     finally:
+        app.state.workbench_runtime.close()
         service_manager.close()
 
 
@@ -285,6 +285,7 @@ def create_app() -> FastAPI:
     app.include_router(projects_router, prefix="/api", tags=["projects"])
     app.include_router(chat_router, prefix="/api", tags=["chat"])
     app.include_router(traces_router, prefix="/api", tags=["traces"])
+    app.include_router(workbench_router, prefix="/api", tags=["workbench"])
     return app
 
 

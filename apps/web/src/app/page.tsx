@@ -140,7 +140,7 @@ type SystemGpuPayload = {
 
 type SearchStatus = {
   job_id: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'queued' | 'running' | 'completed' | 'failed';
   stage: string;
   message: string;
   progress: number;

@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server';
-import { listPapers } from '@/lib/workbench-store';
+import { proxyToBackend } from '@/lib/backend-proxy';
 
 export function GET() {
-  return NextResponse.json({ papers: listPapers() });
+  return proxyToBackend('/workbench/library/papers');
 }

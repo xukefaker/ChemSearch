@@ -2,7 +2,14 @@
 setlocal
 
 set "ROOT=%~dp0"
-set "CMD=%ROOT%.venv\Scripts\chemsearch.exe"
+if defined CHEMSEARCH_VENV_PATH (
+  set "VENV_PATH=%CHEMSEARCH_VENV_PATH%"
+) else if exist "%ROOT%.chemsearch-venv" (
+  set /p VENV_PATH=<"%ROOT%.chemsearch-venv"
+) else (
+  set "VENV_PATH=%ROOT%.venv"
+)
+set "CMD=%VENV_PATH%\Scripts\chemsearch.exe"
 set "LOCAL_NODE=%ROOT%.local\node\current"
 
 if exist "%LOCAL_NODE%\node.exe" (

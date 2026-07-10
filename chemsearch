@@ -2,7 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CMD="$ROOT/.venv/bin/chemsearch"
+VENV_PATH="${CHEMSEARCH_VENV_PATH:-}"
+if [[ -z "$VENV_PATH" && -f "$ROOT/.chemsearch-venv" ]]; then
+  VENV_PATH="$(<"$ROOT/.chemsearch-venv")"
+fi
+VENV_PATH="${VENV_PATH:-$ROOT/.venv}"
+CMD="$VENV_PATH/bin/chemsearch"
 LOCAL_NODE_BIN="$ROOT/.local/node/current/bin"
 
 if [[ -x "$LOCAL_NODE_BIN/node" ]]; then

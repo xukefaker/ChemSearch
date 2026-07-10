@@ -46,6 +46,8 @@ Run a small chemistry demo:
 
 Open `http://127.0.0.1:4000`.
 
+ChemSearch provides five real retrieval settings in the search toolbar: BM25 full text, ColBERTv2, SPLADE++, BM25 + ColBERTv2, and BM25 + SPLADE++. BM25 is ready immediately after indexing. The first ColBERTv2 or SPLADE++ search downloads its official checkpoint and builds a derived passage index under `data/retrieval_cache/`; later searches reuse that cache. The two checkpoints require roughly 1 GB of additional disk space in the Hugging Face cache.
+
 <details>
 <summary>Windows PowerShell</summary>
 
@@ -93,6 +95,8 @@ During indexing, press `q` to cancel. ChemSearch removes staged files from that 
 
 The installer creates `.venv/`, installs ChemSearch with an automatically selected PyTorch backend, creates `.env`, and runs `chemsearch doctor`.
 
+On managed servers where environments must live outside the repository, set `CHEMSEARCH_VENV_PATH` before running the installer. Ordinary local installations should leave it unset so the environment remains in `.venv/`.
+
 The only required setting is:
 
 ```env
@@ -107,6 +111,8 @@ OPENAI_MODEL=gpt-4o-mini
 CHEMSEARCH_DATA_DIR=./data
 CHEMSEARCH_DEVICE=auto
 CHEMSEARCH_APP_NAME=ChemSearch
+CHEMSEARCH_COLBERT_MODEL=colbert-ir/colbertv2.0
+CHEMSEARCH_SPLADE_MODEL=naver/splade-cocondenser-ensembledistil
 ```
 
 `CHEMSEARCH_DEVICE=auto` prefers CUDA or Apple MPS when PyTorch can use it. If no accelerator is available, ChemSearch warns and continues on CPU.

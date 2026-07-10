@@ -78,9 +78,11 @@ if (Test-NodeOk) {
 }
 
 & $UvPath python install 3.12 --no-bin
-& $UvPath venv --python 3.12 --allow-existing .venv
+$VenvPath = if ($env:CHEMSEARCH_VENV_PATH) { $env:CHEMSEARCH_VENV_PATH } else { Join-Path $Root ".venv" }
+& $UvPath venv --python 3.12 --allow-existing $VenvPath
+Set-Content -Path (Join-Path $Root ".chemsearch-venv") -Value $VenvPath
 
-$env:VIRTUAL_ENV = Join-Path $Root ".venv"
+$env:VIRTUAL_ENV = $VenvPath
 $env:PATH = (Join-Path $env:VIRTUAL_ENV "Scripts") + ";" + $env:PATH
 
 & $UvPath pip install -e . --torch-backend=auto
