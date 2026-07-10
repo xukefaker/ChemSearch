@@ -79,7 +79,9 @@ class _HFColBERT:
 
         model = Model()
         weights_path = hf_hub_download(checkpoint, "model.safetensors")
-        model.load_state_dict(load_file(weights_path, device="cpu"), strict=True)
+        state = load_file(weights_path, device="cpu")
+        state.pop("bert.embeddings.position_ids", None)
+        model.load_state_dict(state, strict=True)
         model.to(device).eval()
         tokenizer = AutoTokenizer.from_pretrained(checkpoint, use_fast=True)
         return model, tokenizer
